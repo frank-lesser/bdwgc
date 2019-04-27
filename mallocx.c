@@ -62,10 +62,6 @@ GC_API GC_ATTR_MALLOC void * GC_CALL GC_generic_or_special_malloc(size_t lb,
                                                                   int knd)
 {
     switch(knd) {
-#     ifdef STUBBORN_ALLOC
-        case STUBBORN:
-            return GC_malloc_stubborn(lb);
-#     endif
         case PTRFREE:
         case NORMAL:
             return GC_malloc_kind(lb, knd);
@@ -152,13 +148,9 @@ GC_API void * GC_CALL GC_realloc(void * p, size_t lb)
     }
     if (ADD_SLOP(lb) <= sz) {
         if (lb >= (sz >> 1)) {
-#           ifdef STUBBORN_ALLOC
-                if (obj_kind == STUBBORN) GC_change_stubborn(p);
-#           endif
             if (orig_sz > lb) {
               /* Clear unneeded part of object to avoid bogus pointer */
               /* tracing.                                             */
-              /* Safe for stubborn objects.                           */
                 BZERO(((ptr_t)p) + lb, orig_sz - lb);
             }
             return(p);
@@ -319,11 +311,20 @@ GC_API void GC_CALL GC_generic_malloc_many(size_t lb, int k, void **result)
     DCL_LOCK_STATE;
 
     GC_ASSERT(lb != 0 && (lb & (GRANULE_BYTES-1)) == 0);
-    if (!SMALL_OBJ(lb)) {
+    /* Currently a single object is always allocated if manual VDB. */
+    /* TODO: GC_dirty should be called for each linked object (but  */
+    /* the last one) to support multiple objects allocation.        */
+    if (!SMALL_OBJ(lb) || GC_manual_vdb) {
         op = GC_generic_malloc(lb, k);
         if (EXPECT(0 != op, TRUE))
             obj_link(op) = 0;
         *result = op;
+#       ifndef GC_DISABLE_INCREMENTAL
+          if (GC_manual_vdb && GC_is_heap_ptr(result)) {
+            GC_dirty_inner(result);
+            REACHABLE_AFTER_DIRTY(op);
+          }
+#       endif
         return;
     }
     GC_ASSERT(k < MAXOBJKINDS);
@@ -533,7 +534,8 @@ GC_API GC_ATTR_MALLOC void * GC_CALL GC_memalign(size_t align, size_t lb)
 GC_API int GC_CALL GC_posix_memalign(void **memptr, size_t align, size_t lb)
 {
   /* Check alignment properly.  */
-  if (((align - 1) & align) != 0 || align < sizeof(void *)) {
+  size_t align_minus_one = align - 1; /* to workaround a cppcheck warning */
+  if (align < sizeof(void *) || (align_minus_one & align) != 0) {
 #   ifdef MSWINCE
       return ERROR_INVALID_PARAMETER;
 #   else
@@ -607,3 +609,27 @@ GC_API GC_ATTR_MALLOC char * GC_CALL GC_strndup(const char *str, size_t size)
     return copy;
   }
 #endif /* GC_REQUIRE_WCSDUP */
+
+#ifndef CPPCHECK
+  GC_API void * GC_CALL GC_malloc_stubborn(size_t lb)
+  {
+    return GC_malloc(lb);
+  }
+
+  GC_API void GC_CALL GC_change_stubborn(const void *p GC_ATTR_UNUSED)
+  {
+    /* Empty. */
+  }
+#endif /* !CPPCHECK */
+
+GC_API void GC_CALL GC_end_stubborn_change(const void *p)
+{
+  GC_dirty(p); /* entire object */
+}
+
+GC_API void GC_CALL GC_ptr_store_and_dirty(void *p, const void *q)
+{
+  *(const void **)p = q;
+  GC_dirty(p);
+  REACHABLE_AFTER_DIRTY(q);
+}

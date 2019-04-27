@@ -197,10 +197,6 @@ SOURCE=..\stdafx.c
 # End Source File
 # Begin Source File
 
-SOURCE=..\..\stubborn.c
-# End Source File
-# Begin Source File
-
 SOURCE=..\..\typd_mlc.c
 # End Source File
 # Begin Source File
@@ -238,10 +234,6 @@ SOURCE=..\..\include\gc_gcj.h
 # Begin Source File
 
 SOURCE=..\..\include\private\gc_hdrs.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\..\include\gc_inl.h
 # End Source File
 # Begin Source File
 
@@ -306,10 +298,6 @@ SOURCE=..\stdafx.h
 # Begin Source File
 
 SOURCE=..\..\include\gc_version.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\..\include\weakpointer.h
 # End Source File
 # End Group
 # Begin Group "Resource Files"

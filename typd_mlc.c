@@ -71,21 +71,21 @@ typedef struct {
         size_t ld_nelements;    /* Number of elements.          */
         GC_descr ld_descriptor; /* A simple length, bitmap,     */
                                 /* or procedure descriptor.     */
-    } ld;
+    };
 
     struct ComplexArrayDescriptor {
         word ad_tag;
 #       define ARRAY_TAG 2
         size_t ad_nelements;
         union ComplexDescriptor * ad_element_descr;
-    } ad;
+    };
 
     struct SequenceDescriptor {
         word sd_tag;
 #       define SEQUENCE_TAG 3
         union ComplexDescriptor * sd_first;
         union ComplexDescriptor * sd_second;
-    } sd;
+    };
 
 typedef union ComplexDescriptor {
     struct LeafDescriptor ld;
@@ -137,7 +137,7 @@ STATIC signed_word GC_add_ext_descriptor(const word * bm, word nbits)
         word ed_size = GC_ed_size;
 
         if (ed_size == 0) {
-            GC_ASSERT((word)&GC_ext_descriptors % sizeof(word) == 0);
+            GC_ASSERT((word)(&GC_ext_descriptors) % sizeof(word) == 0);
             GC_push_typed_structures = GC_push_typed_structures_proc;
             UNLOCK();
             new_size = ED_INITIAL_SIZE;
@@ -325,6 +325,9 @@ GC_make_sequence_descriptor(complex_descriptor *first,
         result -> sd_tag = SEQUENCE_TAG;
         result -> sd_first = first;
         result -> sd_second = second;
+        GC_dirty(result);
+        REACHABLE_AFTER_DIRTY(first);
+        REACHABLE_AFTER_DIRTY(second);
     }
     return((complex_descriptor *)result);
 }
@@ -602,6 +605,8 @@ GC_API GC_ATTR_MALLOC void * GC_CALL GC_malloc_explicitly_typed(size_t lb,
     /* the former might be updated asynchronously.                      */
     lg = BYTES_TO_GRANULES(GC_size(op));
     op[GRANULES_TO_WORDS(lg) - 1] = d;
+    GC_dirty(op + GRANULES_TO_WORDS(lg) - 1);
+    REACHABLE_AFTER_DIRTY(d);
     return op;
 }
 
@@ -636,15 +641,15 @@ GC_API GC_ATTR_MALLOC void * GC_CALL
             GC_bytes_allocd += GRANULES_TO_BYTES((word)lg);
             UNLOCK();
         }
-        ((word *)op)[GRANULES_TO_WORDS(lg) - 1] = d;
-   } else {
-       op = (ptr_t)GENERAL_MALLOC_IOP(lb, GC_explicit_kind);
-       if (op != NULL) {
-         lg = BYTES_TO_GRANULES(GC_size(op));
-         ((word *)op)[GRANULES_TO_WORDS(lg) - 1] = d;
-       }
-   }
-   return op;
+    } else {
+        op = (ptr_t)GENERAL_MALLOC_IOP(lb, GC_explicit_kind);
+        if (NULL == op) return NULL;
+        lg = BYTES_TO_GRANULES(GC_size(op));
+    }
+    ((word *)op)[GRANULES_TO_WORDS(lg) - 1] = d;
+    GC_dirty(op + GRANULES_TO_WORDS(lg) - 1);
+    REACHABLE_AFTER_DIRTY(d);
+    return op;
 }
 
 GC_API GC_ATTR_MALLOC void * GC_CALL GC_calloc_explicitly_typed(size_t n,
@@ -697,6 +702,9 @@ GC_API GC_ATTR_MALLOC void * GC_CALL GC_calloc_explicitly_typed(size_t n,
         size_t lw = GRANULES_TO_WORDS(lg);
 
         op[lw - 1] = (word)complex_descr;
+        GC_dirty(op + lw - 1);
+        REACHABLE_AFTER_DIRTY(complex_descr);
+
         /* Make sure the descriptor is cleared once there is any danger */
         /* it may have been collected.                                  */
         if (EXPECT(GC_general_register_disappearing_link(

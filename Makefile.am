@@ -14,8 +14,8 @@
 # Info (current:revision:age) for the Libtool versioning system.
 # These numbers should be updated at most once just before the release,
 # and, optionally, at most once during the development (after the release).
-LIBGC_VER_INFO = 5:0:4
-LIBGCCPP_VER_INFO = 4:0:3
+LIBGC_VER_INFO = 6:0:5
+LIBGCCPP_VER_INFO = 5:0:4
 
 ## FIXME: `make distcheck' in this directory will not currently work.
 ##     This is most likely to the explicit flags passed to submakes.
@@ -38,7 +38,7 @@ AM_CPPFLAGS = \
     -I$(top_builddir)/include -I$(top_srcdir)/include \
     $(ATOMIC_OPS_CFLAGS)
 
-# Initialize variables so that we can declare files locally.
+## Initialize variables so that we can declare files locally.
 EXTRA_DIST =
 lib_LTLIBRARIES =
 include_HEADERS =
@@ -72,7 +72,7 @@ libgc_la_SOURCES = \
     allchblk.c alloc.c blacklst.c dbg_mlc.c \
     dyn_load.c finalize.c gc_dlopen.c gcj_mlc.c headers.c \
     mach_dep.c malloc.c mallocx.c mark.c mark_rts.c misc.c new_hblk.c \
-    obj_map.c os_dep.c ptr_chck.c reclaim.c specific.c stubborn.c typd_mlc.c
+    obj_map.c os_dep.c ptr_chck.c reclaim.c specific.c typd_mlc.c
 
 # C Library: Architecture Dependent
 # ---------------------------------
@@ -105,9 +105,10 @@ endif
 
 if ENABLE_DISCLAIM
 libgc_la_SOURCES += fnlz_mlc.c
+pkginclude_HEADERS += include/gc_disclaim.h
 endif
 
-# End of !SINGLE_GC_OBJ
+## End of !SINGLE_GC_OBJ
 endif
 
 if USE_INTERNAL_LIBATOMIC_OPS
@@ -126,24 +127,22 @@ libgc_la_LDFLAGS = $(extra_ldflags_libgc) -version-info $(LIBGC_VER_INFO) \
     -no-undefined
 
 EXTRA_libgc_la_SOURCES = ia64_save_regs_in_stack.s sparc_mach_dep.S \
-    sparc_netbsd_mach_dep.s sparc_sunos4_mach_dep.s
-
-
-# C++ Interface
-# -------------
+    sparc_netbsd_mach_dep.s
 
 if CPLUSPLUS
+# C++ Interface
+# -------------
 lib_LTLIBRARIES += libgccpp.la
-pkginclude_HEADERS += include/gc_cpp.h
+pkginclude_HEADERS += include/gc_allocator.h include/gc_cpp.h
 include_HEADERS += include/extra/gc_cpp.h
 libgccpp_la_SOURCES = gc_cpp.cc
 libgccpp_la_LIBADD = ./libgc.la
 libgccpp_la_LDFLAGS = -version-info $(LIBGCCPP_VER_INFO) -no-undefined
 endif
 
-# FIXME: If Visual C++ users use Makefile.am, this should go into
-# pkginclude_HEADERS with proper AM_CONDITIONALization.  Otherwise
-# delete this comment.
+## FIXME: If Visual C++ users use Makefile.am, this should go into
+## pkginclude_HEADERS with proper AM_CONDITIONALization.  Otherwise
+## delete this comment.
 EXTRA_DIST += gc_cpp.cpp
 
 
@@ -224,5 +223,5 @@ include include/include.am
 include cord/cord.am
 include tests/tests.am
 include doc/doc.am
-# Putting these at the top causes cord to be built first, and not find libgc.a
-# on HP/UX.  There may be a better fix.
+## Putting these at the top causes cord to be built first, and not find
+## libgc.a on HP/UX.  There may be a better fix.

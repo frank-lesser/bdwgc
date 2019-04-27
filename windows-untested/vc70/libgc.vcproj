@@ -194,9 +194,6 @@
                 </FileConfiguration>
             </File>
             <File
-                RelativePath="..\..\stubborn.c">
-            </File>
-            <File
                 RelativePath="..\..\typd_mlc.c">
             </File>
             <File
@@ -217,9 +214,6 @@
             </File>
             <File
                 RelativePath="..\..\include\gc_gcj.h">
-            </File>
-            <File
-                RelativePath="..\..\include\gc_inl.h">
             </File>
             <File
                 RelativePath="..\..\include\gc_inline.h">
@@ -247,9 +241,6 @@
             </File>
             <File
                 RelativePath="..\..\include\gc_version.h">
-            </File>
-            <File
-                RelativePath="..\..\include\weakpointer.h">
             </File>
         </Filter>
     </Files>

@@ -31,8 +31,12 @@
 #ifdef GC_PTHREADS
 # include <pthread.h>
 #else
+# ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN 1
+# endif
+# define NOSERVICE
 # include <windows.h>
-#endif
+#endif /* !GC_PTHREADS */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -81,6 +85,8 @@ int main(void)
     GC_INIT();
 # endif
   (void)GC_get_parallel(); /* linking fails if no threads support */
+  if (GC_get_find_leak())
+    printf("This test program is not designed for leak detection mode\n");
 # ifdef GC_PTHREADS
     if ((code = pthread_create (&t, NULL, thread, NULL)) != 0) {
       fprintf(stderr, "Thread creation failed %d\n", code);

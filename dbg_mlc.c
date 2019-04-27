@@ -287,7 +287,7 @@ GC_INNER void *GC_store_debug_info_inner(void *p, word sz GC_ATTR_UNUSED,
       ((oh *)p) -> oh_bg_ptr = HIDE_BACK_PTR((ptr_t)0);
 #   endif
     ((oh *)p) -> oh_string = string;
-    ((oh *)p) -> oh_int = (word)linenum;
+    ((oh *)p) -> oh_int = linenum;
 #   ifndef SHORT_DBG_HDRS
       ((oh *)p) -> oh_sz = sz;
       ((oh *)p) -> oh_sf = START_FLAG ^ (word)result;
@@ -334,11 +334,11 @@ static void *store_debug_info(void *p, size_t lb,
         return((ptr_t)(&(ohdr -> oh_sf)));
     }
     if (((word *)ohdr)[BYTES_TO_WORDS(gc_sz)-1] != (END_FLAG ^ (word)body)) {
-        return((ptr_t)((word *)ohdr + BYTES_TO_WORDS(gc_sz)-1));
+        return (ptr_t)(&((word *)ohdr)[BYTES_TO_WORDS(gc_sz)-1]);
     }
     if (((word *)body)[SIMPLE_ROUNDED_UP_WORDS(ohdr -> oh_sz)]
         != (END_FLAG ^ (word)body)) {
-        return((ptr_t)((word *)body + SIMPLE_ROUNDED_UP_WORDS(ohdr->oh_sz)));
+        return (ptr_t)(&((word *)body)[SIMPLE_ROUNDED_UP_WORDS(ohdr->oh_sz)]);
     }
     return(0);
   }
@@ -406,9 +406,6 @@ STATIC void GC_print_obj(ptr_t p)
               kind_str = "ATOMIC_UNCOLLECTABLE";
               break;
 #         endif
-          case STUBBORN:
-            kind_str = "STUBBORN";
-            break;
           default:
             kind_str = NULL;
                 /* The alternative is to use snprintf(buffer) but it is */
@@ -492,9 +489,16 @@ GC_INNER void GC_start_debugging_inner(void)
   GC_print_heap_obj = GC_debug_print_heap_obj_proc;
   GC_debugging_started = TRUE;
   GC_register_displacement_inner((word)sizeof(oh));
+# if defined(CPPCHECK)
+    GC_noop1(GC_debug_header_size);
+# endif
 }
 
-size_t GC_debug_header_size = sizeof(oh);
+const size_t GC_debug_header_size = sizeof(oh);
+
+GC_API size_t GC_CALL GC_get_debug_header_size(void) {
+  return sizeof(oh);
+}
 
 GC_API void GC_CALL GC_debug_register_displacement(size_t offset)
 {
@@ -615,61 +619,32 @@ STATIC void * GC_debug_generic_malloc(size_t lb, int knd, GC_EXTRA_PARAMS)
   }
 #endif /* DBG_HDRS_ALL */
 
-#ifdef STUBBORN_ALLOC
-  GC_API GC_ATTR_MALLOC void * GC_CALL GC_debug_malloc_stubborn(size_t lb,
-                                                        GC_EXTRA_PARAMS)
-  {
-    void * result = GC_malloc_stubborn(SIZET_SAT_ADD(lb, DEBUG_BYTES));
-
-    return store_debug_info(result, lb, "GC_debug_malloc_stubborn",
-                            OPT_RA s, i);
-  }
-
-  GC_API void GC_CALL GC_debug_change_stubborn(const void *p)
-  {
-    const void * q = GC_base_C(p);
-    hdr * hhdr;
-
-    if (q == 0) {
-        ABORT_ARG1("GC_debug_change_stubborn: bad arg", ": %p", p);
-    }
-    hhdr = HDR(q);
-    if (hhdr -> hb_obj_kind != STUBBORN) {
-        ABORT_ARG1("GC_debug_change_stubborn: arg not stubborn", ": %p", p);
-    }
-    GC_change_stubborn(q);
-  }
-
-  GC_API void GC_CALL GC_debug_end_stubborn_change(const void *p)
-  {
-    const void * q = GC_base_C(p);
-    hdr * hhdr;
-
-    if (q == 0) {
-        ABORT_ARG1("GC_debug_end_stubborn_change: bad arg", ": %p", p);
-    }
-    hhdr = HDR(q);
-    if (hhdr -> hb_obj_kind != STUBBORN) {
-        ABORT_ARG1("GC_debug_end_stubborn_change: arg not stubborn",
-                   ": %p", p);
-    }
-    GC_end_stubborn_change(q);
-  }
-
-#else /* !STUBBORN_ALLOC */
-
-  GC_API GC_ATTR_MALLOC void * GC_CALL GC_debug_malloc_stubborn(size_t lb,
-                                                        GC_EXTRA_PARAMS)
+#ifndef CPPCHECK
+  GC_API void * GC_CALL GC_debug_malloc_stubborn(size_t lb, GC_EXTRA_PARAMS)
   {
     return GC_debug_malloc(lb, OPT_RA s, i);
   }
 
   GC_API void GC_CALL GC_debug_change_stubborn(
                                 const void * p GC_ATTR_UNUSED) {}
+#endif /* !CPPCHECK */
 
-  GC_API void GC_CALL GC_debug_end_stubborn_change(
-                                const void * p GC_ATTR_UNUSED) {}
-#endif /* !STUBBORN_ALLOC */
+GC_API void GC_CALL GC_debug_end_stubborn_change(const void *p)
+{
+    const void * q = GC_base_C(p);
+
+    if (NULL == q) {
+        ABORT_ARG1("GC_debug_end_stubborn_change: bad arg", ": %p", p);
+    }
+    GC_end_stubborn_change(q);
+}
+
+GC_API void GC_CALL GC_debug_ptr_store_and_dirty(void *p, const void *q)
+{
+    *(void **)GC_is_visible(p) = GC_is_valid_displacement((void *)q);
+    GC_debug_end_stubborn_change(p);
+    REACHABLE_AFTER_DIRTY(q);
+}
 
 GC_API GC_ATTR_MALLOC void * GC_CALL GC_debug_malloc_atomic(size_t lb,
                                                             GC_EXTRA_PARAMS)
@@ -833,11 +808,17 @@ GC_API void GC_CALL GC_debug_free(void * p)
         GC_free(base);
       } else {
         word i;
-        word obj_sz = BYTES_TO_WORDS(hhdr->hb_sz - sizeof(oh));
+        word sz = hhdr -> hb_sz;
+        word obj_sz = BYTES_TO_WORDS(sz - sizeof(oh));
 
         for (i = 0; i < obj_sz; ++i)
           ((word *)p)[i] = GC_FREED_MEM_MARKER;
-        GC_ASSERT((word *)p + i == (word *)(base + hhdr -> hb_sz));
+        GC_ASSERT((word *)p + i == (word *)(base + sz));
+        /* Update the counter even though the real deallocation */
+        /* is deferred.                                         */
+        LOCK();
+        GC_bytes_freed += sz;
+        UNLOCK();
       }
     } /* !GC_find_leak */
 }
@@ -889,11 +870,6 @@ GC_API void * GC_CALL GC_debug_realloc(void * p, size_t lb, GC_EXTRA_PARAMS)
     }
     hhdr = HDR(base);
     switch (hhdr -> hb_obj_kind) {
-#    ifdef STUBBORN_ALLOC
-      case STUBBORN:
-        result = GC_debug_malloc_stubborn(lb, OPT_RA s, i);
-        break;
-#    endif
       case NORMAL:
         result = GC_debug_malloc(lb, OPT_RA s, i);
         break;
@@ -931,10 +907,6 @@ GC_API GC_ATTR_MALLOC void * GC_CALL
     GC_debug_generic_or_special_malloc(size_t lb, int knd, GC_EXTRA_PARAMS)
 {
     switch (knd) {
-#     ifdef STUBBORN_ALLOC
-        case STUBBORN:
-            return GC_debug_malloc_stubborn(lb, OPT_RA s, i);
-#     endif
         case PTRFREE:
             return GC_debug_malloc_atomic(lb, OPT_RA s, i);
         case NORMAL:

@@ -152,12 +152,17 @@ GC_API struct GC_ms_entry * GC_CALL GC_mark_and_push(void * /* obj */,
            (GC_word)(obj) <= (GC_word)GC_greatest_plausible_heap_addr ? \
            GC_mark_and_push(obj, msp, lim, src) : (msp))
 
-GC_API size_t GC_debug_header_size;
-       /* The size of the header added to objects allocated through    */
-       /* the GC_debug routines.                                       */
-       /* Defined as a variable so that client mark procedures don't   */
-       /* need to be recompiled for collector version changes.         */
-#define GC_USR_PTR_FROM_BASE(p) ((void *)((char *)(p) + GC_debug_header_size))
+/* The size of the header added to objects allocated through the        */
+/* GC_debug routines.  Defined as a function so that client mark        */
+/* procedures do not need to be recompiled for the collector library    */
+/* version changes.                                                     */
+GC_API GC_ATTR_CONST size_t GC_CALL GC_get_debug_header_size(void);
+#define GC_USR_PTR_FROM_BASE(p) \
+                ((void *)((char *)(p) + GC_get_debug_header_size()))
+
+/* The same but defined as a variable.  Exists only for the backward    */
+/* compatibility.                                                       */
+GC_API GC_ATTR_DEPRECATED const size_t GC_debug_header_size;
 
 /* And some routines to support creation of new "kinds", e.g. with      */
 /* custom mark procedures, by language runtimes.                        */
@@ -184,7 +189,7 @@ GC_API unsigned GC_CALL GC_new_proc(GC_mark_proc);
 GC_API unsigned GC_CALL GC_new_proc_inner(GC_mark_proc);
 
 /* Allocate an object of a given kind.  By default, there are only      */
-/* a few kinds: composite (pointer-free), atomic, uncollectible, etc.   */
+/* a few kinds: composite (pointerful), atomic, uncollectible, etc.     */
 /* We claim it is possible for clever client code that understands the  */
 /* GC internals to add more, e.g. to communicate object layout          */
 /* information to the collector.  Note that in the multi-threaded       */

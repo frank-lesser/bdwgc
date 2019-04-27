@@ -46,7 +46,12 @@ int getpagesize(void)
     return((int)(result[0]));
 }
 #elif defined(MSWIN32) || defined(MSWINCE) || defined(CYGWIN32)
+# ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN 1
+# endif
+# define NOSERVICE
 # include <windows.h>
+
   int getpagesize(void)
   {
     SYSTEM_INFO sysinfo;
@@ -86,6 +91,9 @@ int main(void)
 
     sp = (word)(&sp);
     printf("This appears to be a %s running %s\n", MACH_TYPE, OS_TYPE);
+#   if defined(CPPCHECK)
+      (void)nested_sp(); /* to workaround a bug in cppcheck */
+#   endif
     if (nested_sp_fn() < sp) {
       printf("Stack appears to grow down, which is the default.\n");
       printf("A good guess for STACKBOTTOM on this machine is 0x%lx.\n",

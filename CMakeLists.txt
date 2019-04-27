@@ -50,8 +50,8 @@ INCLUDE_DIRECTORIES(libatomic_ops/src)
 
 SET(SRC alloc.c reclaim.c allchblk.c misc.c mach_dep.c os_dep.c
         mark_rts.c headers.c mark.c obj_map.c blacklst.c finalize.c
-        new_hblk.c dbg_mlc.c malloc.c stubborn.c dyn_load.c
-        typd_mlc.c ptr_chck.c mallocx.c)
+        new_hblk.c dbg_mlc.c malloc.c dyn_load.c typd_mlc.c ptr_chck.c
+        mallocx.c)
 SET(LIBS)
 OPTION(enable_threads "TODO" NO)
 IF(enable_threads)
@@ -80,12 +80,12 @@ SET(_HOST ${CMAKE_HOST_SYSTEM_PROCESSOR}--${CMAKE_SYSTEM}) #FIXME missing the ve
 STRING(TOLOWER ${_HOST} HOST)
 MESSAGE("HOST = ${HOST}")
 
-#Thread Detection. Relying on cmake for lib an includes.
+# Thread Detection.  Relying on cmake for lib and includes.
 #TODO check cmake detection
 IF(CMAKE_USE_PTHREADS_INIT)
         SET(SRC ${SRC} pthread_start.c pthread_support.c pthread_stop_world.c)
         # Common defines for most POSIX platforms.
-        IF( HOST MATCHES .*-.*-aix.*|.*-.*-android.*|.*-.*-cygwin.*|.*-.*-darwin.*|.*-.*-.*freebsd.*|.*-.*-haiku.*|.*-.*-gnu.*|.*-.*-hpux11.*|.*-.*-irix.*|.*-.*-.*linux.*|.*-.*-nacl.*|.*-.*-netbsd.*|.*-.*-openbsd.*|.*-.*-osf.*|.*-.*-solaris.*)
+        IF( HOST MATCHES .*-.*-aix.*|.*-.*-android.*|.*-.*-cygwin.*|.*-.*-darwin.*|.*-.*-.*freebsd.*|.*-.*-haiku.*|.*-.*-gnu.*|.*-.*-hpux11.*|.*-.*-irix.*|.*-.*-.*linux.*|.*-.*-msys.*|.*-.*-nacl.*|.*-.*-netbsd.*|.*-.*-openbsd.*|.*-.*-osf.*|.*-.*-solaris.*)
                 ADD_DEFINITIONS("-DGC_THREADS -D_REENTRANT")
                 IF(enable_parallel_mark)
                     ADD_DEFINITIONS("-DPARALLEL_MARK")
@@ -107,12 +107,14 @@ IF(CMAKE_USE_PTHREADS_INIT)
                 MESSAGE("Only on NetBSD 2.0 or later.")
                 ADD_DEFINITIONS("-D_PTHREADS")
         ENDIF()
-        IF( HOST MATCHES .*-.*-aix.*|.*-.*-cygwin.*|.*-.*-freebsd.*|.*-.*-haiku.*|.*-.*-hpux11.*|.*-.*-irix.*|.*-.*-kfreebsd.*-gnu|.*-.*-.*linux.*|.*-.*-netbsd.*|.*-.*-openbsd.*|.*-.*-osf.*|.*-.*-solaris.*)
+        IF( HOST MATCHES .*-.*-android.*)
+                # Android NDK does not provide pthread_atfork.
+        ELSEIF( HOST MATCHES .*-.*-aix.*|.*-.*-cygwin.*|.*-.*-freebsd.*|.*-.*-haiku.*|.*-.*-hpux11.*|.*-.*-irix.*|.*-.*-kfreebsd.*-gnu|.*-.*-.*linux.*|.*-.*-netbsd.*|.*-.*-openbsd.*|.*-.*-osf.*|.*-.*-solaris.*)
                 IF(enable_handle_fork)
                     ADD_DEFINITIONS("-DHANDLE_FORK")
                 ENDIF(enable_handle_fork)
         ENDIF()
-        IF ( HOST MATCHES .*-.*-cygwin.*)
+        IF ( HOST MATCHES .*-.*-cygwin.*|.*-.*-msys.*)
                 SET(SRC ${SRC} win32_threads.c)
         ENDIF()
         IF ( HOST MATCHES .*-.*-darwin.*)
@@ -192,10 +194,24 @@ IF(enable_redirect_malloc)
     ADD_DEFINITIONS("-DGC_USE_DLOPEN_WRAP")
 ENDIF(enable_redirect_malloc)
 
+OPTION(enable_mmap "Use mmap instead of sbrk to expand the heap" NO)
+
 OPTION(enable_munmap "Return page to the OS if empty for N collections" ON)
 IF(enable_munmap)
     ADD_DEFINITIONS("-DUSE_MMAP -DUSE_MUNMAP")
-ENDIF(enable_munmap)
+ELSEIF(enable_mmap)
+    ADD_DEFINITIONS("-DUSE_MMAP")
+ENDIF()
+
+OPTION(enable_dynamic_loading "Enable tracing of dynamic library data roots" ON)
+IF(NOT enable_dynamic_loading)
+    ADD_DEFINITIONS("-DIGNORE_DYNAMIC_LOADING")
+ENDIF()
+
+OPTION(enable_register_main_static_data "Perform the initial guess of data root sets" ON)
+IF(NOT enable_register_main_static_data)
+    ADD_DEFINITIONS("-DGC_DONT_REGISTER_MAIN_STATIC_DATA")
+ENDIF()
 
 OPTION(enable_large_config "Optimize for large heap or root set" NO)
 IF(enable_large_config)
@@ -207,11 +223,16 @@ IF(enable_gc_assertions)
     ADD_DEFINITIONS("-DGC_ASSERTIONS")
 ENDIF(enable_gc_assertions)
 
+OPTION(enable_threads_discovery "Enable threads discovery in GC" ON)
+IF(NOT enable_threads_discovery)
+    ADD_DEFINITIONS("-DGC_NO_THREADS_DISCOVERY")
+ENDIF()
+
 OPTION(enable_checksums "Report erroneously cleared dirty bits" NO)
 IF(enable_checksums)
     IF(enable_munmap OR enable_threads)
         MESSAGE("CHECKSUMS not compatible with USE_MUNMAP or threads")
-    ENDIF(enable_threads)
+    ENDIF()
     ADD_DEFINITIONS("-DCHECKSUMS")
     SET(SRC ${SRC} checksums.c)
 ENDIF(enable_checksums)

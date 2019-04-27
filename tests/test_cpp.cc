@@ -28,6 +28,7 @@ few minutes to complete.
 
 #undef GC_BUILD
 
+#define GC_DONT_INCL_WINDOWS_H
 #include "gc_cpp.h"
 
 #include <stdio.h>
@@ -54,6 +55,10 @@ extern "C" {
 }
 
 #ifdef MSWIN32
+# ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN 1
+# endif
+# define NOSERVICE
 # include <windows.h>
 #endif
 
@@ -84,6 +89,7 @@ class A {public:
     GC_ATTR_EXPLICIT A( int iArg ): i( iArg ) {}
     void Test( int iArg ) {
         my_assert( i == iArg );}
+    virtual ~A() {}
     int i;};
 
 
@@ -99,16 +105,49 @@ class B: public GC_NS_QUALIFY(gc), public A { public:
 
 int B::deleting = 0;
 
+#define C_INIT_LEFT_RIGHT(arg_l, arg_r) \
+    { \
+        C *l = new C(arg_l); \
+        C *r = new C(arg_r); \
+        left = l; \
+        right = r; \
+        if (GC_is_heap_ptr(this)) { \
+            GC_END_STUBBORN_CHANGE(this); \
+            GC_reachable_here(l); \
+            GC_reachable_here(r); \
+        } \
+    }
 
 class C: public GC_NS_QUALIFY(gc_cleanup), public A { public:
     /* A collectible class with cleanup and virtual multiple inheritance. */
 
+    // The class uses dynamic memory/resource allocation, so provide both
+    // a copy constructor and an assignment operator to workaround a cppcheck
+    // warning.
+    C(const C& c) : A(c.i), level(c.level), left(0), right(0) {
+        if (level > 0)
+            C_INIT_LEFT_RIGHT(*c.left, *c.right);
+    }
+
+    C& operator=(const C& c) {
+        if (this != &c) {
+            delete left;
+            delete right;
+            i = c.i;
+            level = c.level;
+            left = 0;
+            right = 0;
+            if (level > 0)
+                C_INIT_LEFT_RIGHT(*c.left, *c.right);
+        }
+        return *this;
+    }
+
     GC_ATTR_EXPLICIT C( int levelArg ): A( levelArg ), level( levelArg ) {
         nAllocated++;
         if (level > 0) {
-            left = new C( level - 1 );
-            right = new C( level - 1 );}
-        else {
+            C_INIT_LEFT_RIGHT(level - 1, level - 1);
+        } else {
             left = right = 0;}}
     ~C() {
         this->A::Test( level );
@@ -119,7 +158,14 @@ class C: public GC_NS_QUALIFY(gc_cleanup), public A { public:
         left = right = 0;
         level = -123456;}
     static void Test() {
-        my_assert( nFreed <= nAllocated && nFreed >= .8 * nAllocated );}
+        if (GC_is_incremental_mode() && nFreed < (nAllocated / 5) * 4) {
+          // An explicit GC might be needed to reach the expected number
+          // of the finalized objects.
+          GC_gcollect();
+        }
+        my_assert(nFreed <= nAllocated);
+        my_assert(nFreed >= (nAllocated / 5) * 4 || GC_get_find_leak());
+    }
 
     static int nFreed;
     static int nAllocated;
@@ -142,7 +188,8 @@ class D: public GC_NS_QUALIFY(gc) { public:
         nFreed++;
         my_assert( (GC_word)self->i == (GC_word)data );}
     static void Test() {
-        my_assert( nFreed >= .8 * nAllocated );}
+        my_assert(nFreed >= (nAllocated / 5) * 4 || GC_get_find_leak());
+    }
 
     int i;
     static int nFreed;
@@ -180,7 +227,7 @@ class F: public E {public:
     }
 
     static void Test() {
-        my_assert(nFreedF >= .8 * nAllocatedF);
+        my_assert(nFreedF >= (nAllocatedF / 5) * 4 || GC_get_find_leak());
         my_assert(2 * nFreedF == nFreed);
     }
 
@@ -200,12 +247,12 @@ void* Undisguise( GC_word i ) {
     return (void*) ~ i;}
 
 #define GC_CHECKED_DELETE(p) \
-    do { \
+    { \
       size_t freed_before = GC_get_expl_freed_bytes_since_gc(); \
       delete p; /* the operator should invoke GC_FREE() */ \
       size_t freed_after = GC_get_expl_freed_bytes_since_gc(); \
       my_assert(freed_before != freed_after); \
-    } while (0)
+    }
 
 #if ((defined(MSWIN32) && !defined(__MINGW32__)) || defined(MSWINCE)) \
     && !defined(NO_WINMAIN_ENTRY)
@@ -228,7 +275,6 @@ void* Undisguise( GC_word i ) {
           argv[argc] = NULL;
           break;
         }
-        argv[argc] = cmd;
         for (; *cmd != '\0'; cmd++) {
           if (*cmd != ' ' && *cmd != '\t')
             break;
@@ -260,7 +306,15 @@ void* Undisguise( GC_word i ) {
     GC_set_all_interior_pointers(1);
                         /* needed due to C++ multiple inheritance used  */
 
+#   ifdef TEST_MANUAL_VDB
+      GC_set_manual_vdb_allowed(1);
+#   endif
     GC_INIT();
+#   ifndef NO_INCREMENTAL
+      GC_enable_incremental();
+#   endif
+    if (GC_get_find_leak())
+      GC_printf("This test program is not designed for leak detection mode\n");
 
     int i, iters, n;
 #   ifndef DONT_USE_STD_ALLOCATOR
@@ -278,7 +332,7 @@ void* Undisguise( GC_word i ) {
         fprintf(stderr, "Out of memory!\n");
         exit(3);
       }
-      *xptr = x;
+      GC_PTR_STORE_AND_DIRTY(xptr, x);
       x = 0;
 #   endif
     if (argc != 2

@@ -1,18 +1,17 @@
 
 #ifdef HAVE_CONFIG_H
-  /* For PARALLEL_MARK */
+  /* For GC_THREADS and PARALLEL_MARK */
 # include "config.h"
 #endif
 
-#ifndef GC_THREADS
-# define GC_THREADS
-#endif
-#include "gc.h"
+#ifdef GC_THREADS
+# include "gc.h"
 
-#ifdef PARALLEL_MARK
-# define AO_REQUIRE_CAS
-#endif
-#include "private/gc_atomic_ops.h"
+# ifdef PARALLEL_MARK
+#   define AO_REQUIRE_CAS
+# endif
+# include "private/gc_atomic_ops.h"
+#endif /* GC_THREADS */
 
 #include <stdio.h>
 
@@ -21,8 +20,12 @@
 #ifdef GC_PTHREADS
 # include <pthread.h>
 #else
+# ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN 1
+# endif
+# define NOSERVICE
 # include <windows.h>
-#endif
+#endif /* !GC_PTHREADS */
 
 #if defined(__HAIKU__)
 # include <errno.h>

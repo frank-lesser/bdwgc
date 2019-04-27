@@ -71,7 +71,7 @@ typedef struct GC_Thread_Rep {
       volatile AO_t suspended_ext;  /* Thread was suspended externally. */
 #   endif
 
-    unsigned char flags;
+    unsigned char flags;        /* Protected by GC lock.                */
 #       define FINISHED 1       /* Thread has exited.                   */
 #       define DETACHED 2       /* Thread is treated as detached.       */
                                 /* Thread may really be detached, or    */
@@ -157,11 +157,6 @@ GC_EXTERN volatile GC_thread GC_threads[THREAD_TABLE_SZ];
 GC_EXTERN GC_bool GC_thr_initialized;
 
 GC_INNER GC_thread GC_lookup_thread(pthread_t id);
-
-GC_EXTERN GC_bool GC_in_thread_creation;
-        /* We may currently be in thread creation or destruction.       */
-        /* Only set to TRUE while allocation lock is held.              */
-        /* When set, it is OK to run GC from unknown thread.            */
 
 #ifdef NACL
   GC_EXTERN __thread GC_thread GC_nacl_gc_thread_self;
