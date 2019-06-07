@@ -14,34 +14,60 @@
 # modified is included with the above copyright notice.
 ##
 
-ADD_DEFINITIONS(-DGC_NOT_DLL)
+add_definitions("-DGC_NOT_DLL")
 
 # Compile some tests as C++ to test extern "C" in header files.
-SET_SOURCE_FILES_PROPERTIES(
-    leak_test.c
-    test.c
-    PROPERTIES LANGUAGE CXX)
+if (enable_cplusplus)
+  set_source_files_properties(leak_test.c test.c
+                              PROPERTIES LANGUAGE CXX)
+endif()
 
-ADD_EXECUTABLE(gctest WIN32 test.c)
-TARGET_LINK_LIBRARIES(gctest gc-lib)
-ADD_TEST(NAME gctest COMMAND gctest)
+add_executable(gctest WIN32 test.c)
+target_link_libraries(gctest gc-lib)
+add_test(NAME gctest COMMAND gctest)
 
-ADD_EXECUTABLE(hugetest huge_test.c)
-TARGET_LINK_LIBRARIES(hugetest gc-lib)
-ADD_TEST(NAME hugetest COMMAND hugetest)
+add_executable(hugetest huge_test.c)
+target_link_libraries(hugetest gc-lib)
+add_test(NAME hugetest COMMAND hugetest)
 
-ADD_EXECUTABLE(leaktest leak_test.c)
-TARGET_LINK_LIBRARIES(leaktest gc-lib)
-ADD_TEST(NAME leaktest COMMAND leaktest)
+add_executable(leaktest leak_test.c)
+target_link_libraries(leaktest gc-lib)
+add_test(NAME leaktest COMMAND leaktest)
 
-ADD_EXECUTABLE(middletest middle.c)
-TARGET_LINK_LIBRARIES(middletest gc-lib)
-ADD_TEST(NAME middletest COMMAND middletest)
+add_executable(middletest middle.c)
+target_link_libraries(middletest gc-lib)
+add_test(NAME middletest COMMAND middletest)
 
-ADD_EXECUTABLE(realloc_test realloc_test.c)
-TARGET_LINK_LIBRARIES(realloc_test gc-lib)
-ADD_TEST(NAME realloc_test COMMAND realloc_test)
+add_executable(realloc_test realloc_test.c)
+target_link_libraries(realloc_test gc-lib)
+add_test(NAME realloc_test COMMAND realloc_test)
 
-ADD_EXECUTABLE(smashtest smash_test.c)
-TARGET_LINK_LIBRARIES(smashtest gc-lib)
-ADD_TEST(NAME smashtest COMMAND smashtest)
+add_executable(smashtest smash_test.c)
+target_link_libraries(smashtest gc-lib)
+add_test(NAME smashtest COMMAND smashtest)
+
+if (enable_gc_debug)
+  add_executable(tracetest trace_test.c)
+  target_link_libraries(tracetest gc-lib)
+  add_test(NAME tracetest COMMAND tracetest)
+endif()
+
+if (enable_cplusplus)
+  # TODO add_executable(test_cpp test_cpp.cc)
+  # target_link_libraries(test_cpp gc-lib)
+  # add_test(NAME test_cpp COMMAND test_cpp)
+endif()
+
+if (enable_disclaim)
+  add_executable(disclaim_bench disclaim_bench.c)
+  target_link_libraries(disclaim_bench gc-lib)
+  add_test(NAME disclaim_bench COMMAND disclaim_bench)
+
+  add_executable(disclaim_test disclaim_test.c)
+  target_link_libraries(disclaim_test gc-lib)
+  add_test(NAME disclaim_test COMMAND disclaim_test)
+
+  add_executable(disclaim_weakmap_test disclaim_weakmap_test.c)
+  target_link_libraries(disclaim_weakmap_test gc-lib)
+  add_test(NAME disclaim_weakmap_test COMMAND disclaim_weakmap_test)
+endif()

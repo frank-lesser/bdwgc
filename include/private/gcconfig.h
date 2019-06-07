@@ -147,7 +147,8 @@ EXTERN_C_BEGIN
 # if defined(__aarch64__)
 #    define AARCH64
 #    if !defined(LINUX) && !defined(DARWIN) && !defined(FREEBSD) \
-        && !defined(NETBSD) && !defined(NN_BUILD_TARGET_PLATFORM_NX)
+        && !defined(NETBSD) && !defined(NN_BUILD_TARGET_PLATFORM_NX) \
+        && !defined(OPENBSD)
 #      define NOSYS
 #      define mach_type_known
 #    endif
@@ -181,6 +182,10 @@ EXTERN_C_BEGIN
 # endif
 # if defined(OPENBSD) && defined(__arm__)
 #    define ARM32
+#    define mach_type_known
+# endif
+# if defined(OPENBSD) && defined(__aarch64__)
+#    define AARCH64
 #    define mach_type_known
 # endif
 # if defined(OPENBSD) && defined(__sh__)
@@ -774,7 +779,7 @@ EXTERN_C_BEGIN
  * cause failures on alpha*-*-* with -msmall-data or -fpic or mips-*-*
  * without any special options.
  *
- * STACKBOTTOM is the cool end of the stack, which is usually the
+ * STACKBOTTOM is the cold end of the stack, which is usually the
  * highest address in the stack.
  * Under PCR or OS/2, we have other ways of finding thread stacks.
  * For each machine, the following should:
@@ -784,8 +789,8 @@ EXTERN_C_BEGIN
  *      LINUX_STACKBOTTOM
  *      HEURISTIC1
  *      HEURISTIC2
- * If STACKBOTTOM is defined, then its value will be used directly as the
- * stack base.  If LINUX_STACKBOTTOM is defined, then it will be determined
+ * If STACKBOTTOM is defined, then its value will be used directly (as the
+ * stack bottom).  If LINUX_STACKBOTTOM is defined, then it will be determined
  * with a method appropriate for most Linux systems.  Currently we look
  * first for __libc_stack_end (currently only if USE_LIBC_PRIVATES is
  * defined), and if that fails read it from /proc.  (If USE_LIBC_PRIVATES
@@ -1545,7 +1550,7 @@ EXTERN_C_BEGIN
 #       ifdef USE_WINALLOC
 #         define GWW_VDB
 #       else
-#         define MPROTECT_VDB
+#         /* MPROTECT_VDB does not work, it leads to a spurious exit.   */
 #         ifdef USE_MMAP
 #           define NEED_FIND_LIMIT
 #           define USE_MMAP_ANON
@@ -1845,7 +1850,8 @@ EXTERN_C_BEGIN
 #  endif
 #  ifdef OPENBSD
 #     define OS_TYPE "OPENBSD"
-#     define ALIGNMENT 4
+#     define CPP_WORDSZ 64 /* all OpenBSD/mips platforms are 64-bit */
+#     define ALIGNMENT 8
 #     ifndef GC_OPENBSD_THREADS
         EXTERN_C_END
 #       include <sys/param.h>
@@ -1857,8 +1863,8 @@ EXTERN_C_BEGIN
 #         define HEURISTIC2
 #       endif
 #     endif
-      extern int _fdata[];
-#     define DATASTART ((ptr_t)_fdata)
+      extern int __data_start[];
+#     define DATASTART ((ptr_t)__data_start)
       extern int _end[];
 #     define DATAEND ((ptr_t)(&_end))
 #     define DYNAMIC_LOADING
@@ -2327,6 +2333,26 @@ EXTERN_C_BEGIN
 #     define ELF_CLASS ELFCLASS64
 #     define DYNAMIC_LOADING
 #   endif
+#   ifdef OPENBSD
+#     define OS_TYPE "OPENBSD"
+#     define ELF_CLASS ELFCLASS64
+#     ifndef GC_OPENBSD_THREADS
+        EXTERN_C_END
+#       include <sys/param.h>
+#       include <uvm/uvm_extern.h>
+        EXTERN_C_BEGIN
+#       ifdef USRSTACK
+#         define STACKBOTTOM ((ptr_t)USRSTACK)
+#       else
+#         define HEURISTIC2
+#       endif
+#     endif
+      extern int __data_start[];
+#     define DATASTART ((ptr_t)__data_start)
+      extern int _end[];
+#     define DATAEND ((ptr_t)(&_end))
+#     define DYNAMIC_LOADING
+#   endif
 #   ifdef NINTENDO_SWITCH
       extern int __bss_end[];
 #     define NO_HANDLE_FORK 1
@@ -2776,7 +2802,13 @@ EXTERN_C_BEGIN
 #       ifdef USE_WINALLOC
 #         define GWW_VDB
 #       else
-#         define MPROTECT_VDB
+#         if defined(THREAD_LOCAL_ALLOC)
+            /* TODO: For an unknown reason, thread-local allocations    */
+            /* lead to spurious process exit after the fault handler is */
+            /* once invoked.                                            */
+#         else
+#           define MPROTECT_VDB
+#         endif
 #         ifdef USE_MMAP
 #           define USE_MMAP_ANON
 #         endif
@@ -2900,7 +2932,7 @@ EXTERN_C_BEGIN
 #if defined(LINUX_STACKBOTTOM) && defined(NO_PROC_STAT) \
     && !defined(USE_LIBC_PRIVATES)
     /* This combination will fail, since we have no way to get  */
-    /* the stack base.  Use HEURISTIC2 instead.                 */
+    /* the stack bottom.  Use HEURISTIC2 instead.               */
 #   undef LINUX_STACKBOTTOM
 #   define HEURISTIC2
     /* This may still fail on some architectures like IA64.     */
@@ -3214,8 +3246,8 @@ EXTERN_C_BEGIN
 #endif
 
 #ifndef STATIC
-# ifndef NO_DEBUGGING
-#   define STATIC /* ignore to aid profiling and possibly debugging     */
+# ifdef GC_ASSERTIONS
+#   define STATIC /* ignore to aid debugging (or profiling) */
 # else
 #   define STATIC static
 # endif

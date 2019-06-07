@@ -1312,6 +1312,18 @@ void * GC_CALLBACK inc_int_counter(void *pcounter)
  return NULL;
 }
 
+struct thr_hndl_sb_s {
+  void *gc_thread_handle;
+  struct GC_stack_base sb;
+};
+
+void * GC_CALLBACK set_stackbottom(void *cd)
+{
+  GC_set_stackbottom(((struct thr_hndl_sb_s *)cd)->gc_thread_handle,
+                     &((struct thr_hndl_sb_s *)cd)->sb);
+  return NULL;
+}
+
 #ifndef MIN_WORDS
 # define MIN_WORDS 2
 #endif
@@ -1332,6 +1344,7 @@ void run_one_test(void)
       pid_t pid;
       int wstatus;
 #   endif
+    struct thr_hndl_sb_s thr_hndl_sb;
 
     GC_FREE(0);
 #   ifdef THREADS
@@ -1476,6 +1489,7 @@ void run_one_test(void)
              GC_FREE(GC_MALLOC_IGNORE_OFF_PAGE(2));
            }
          }
+    thr_hndl_sb.gc_thread_handle = GC_get_my_stackbottom(&thr_hndl_sb.sb);
 #   ifdef GC_GCJ_SUPPORT
       GC_REGISTER_DISPLACEMENT(sizeof(struct fake_vtable *));
       GC_init_gcj_malloc(0, (void *)(GC_word)fake_gcj_mark_proc);
@@ -1545,6 +1559,8 @@ void run_one_test(void)
           exit(0);
         }
 #   endif
+    (void)GC_call_with_alloc_lock(set_stackbottom, &thr_hndl_sb);
+
     /* Repeated list reversal test. */
 #   ifndef NO_CLOCK
         GET_TIME(start_time);
@@ -1632,12 +1648,6 @@ void GC_CALLBACK reachable_objs_counter(void *obj, size_t size,
   (*(unsigned *)pcounter)++;
 }
 
-void * GC_CALLBACK reachable_objs_count_enumerator(void *pcounter)
-{
-  GC_enumerate_reachable_objects_inner(reachable_objs_counter, pcounter);
-  return NULL;
-}
-
 #define NUMBER_ROUND_UP(v, bound) ((((v) + (bound) - 1) / (bound)) * (bound))
 
 void check_heap_stats(void)
@@ -1717,8 +1727,9 @@ void check_heap_stats(void)
           FAIL;
         }
       }
-    (void)GC_call_with_alloc_lock(reachable_objs_count_enumerator,
-                                  &obj_count);
+    GC_alloc_lock();
+    GC_enumerate_reachable_objects_inner(reachable_objs_counter, &obj_count);
+    GC_alloc_unlock();
     GC_printf("Completed %u tests\n", n_tests);
     GC_printf("Allocated %d collectable objects\n", (int)collectable_count);
     GC_printf("Allocated %d uncollectable objects\n",
