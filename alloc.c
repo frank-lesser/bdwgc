@@ -534,7 +534,9 @@ GC_INNER GC_bool GC_try_to_collect_inner(GC_stop_func stop_func)
               /* TODO: Notify GC_EVENT_ABANDON */
               return(FALSE);
             }
+            ENTER_GC();
             GC_collect_a_little_inner(1);
+            EXIT_GC();
         }
     }
     GC_notify_full_gc();
@@ -719,7 +721,9 @@ GC_API int GC_CALL GC_collect_a_little(void)
     DCL_LOCK_STATE;
 
     LOCK();
+    ENTER_GC();
     GC_collect_a_little_inner(1);
+    EXIT_GC();
     result = (int)GC_collection_in_progress();
     UNLOCK();
     if (!result && GC_debugging_started) GC_print_all_smashed();
@@ -916,7 +920,7 @@ STATIC GC_bool GC_stopped_mark(GC_stop_func stop_func)
 /* Set all mark bits for the free list whose first entry is q   */
 GC_INNER void GC_set_fl_marks(ptr_t q)
 {
-    if (q != NULL) {
+    if (q /* != NULL */) { /* CPPCHECK */
       struct hblk *h = HBLKPTR(q);
       struct hblk *last_h = h;
       hdr *hhdr = HDR(h);
@@ -1600,9 +1604,15 @@ GC_INNER ptr_t GC_allocobj(size_t gran, int kind)
                   || NULL == GC_obj_kinds[kind].ok_reclaim_list[gran]);
         GC_continue_reclaim(gran, kind);
       EXIT_GC();
-      if (*flh == 0) {
+#     if defined(CPPCHECK)
+        GC_noop1((word)flh);
+#     endif
+      if (NULL == *flh) {
         GC_new_hblk(gran, kind);
-        if (*flh == 0) {
+#       if defined(CPPCHECK)
+          GC_noop1((word)flh);
+#       endif
+        if (NULL == *flh) {
           ENTER_GC();
           if (GC_incremental && GC_time_limit == GC_TIME_UNLIMITED
               && !tried_minor) {

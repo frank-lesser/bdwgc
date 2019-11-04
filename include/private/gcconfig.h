@@ -921,7 +921,9 @@ EXTERN_C_BEGIN
 #   ifdef LINUX
 #       define OS_TYPE "LINUX"
 #       define LINUX_STACKBOTTOM
-#       define MPROTECT_VDB
+#       if !defined(REDIRECT_MALLOC)
+#         define MPROTECT_VDB
+#       endif
 #       ifdef __ELF__
 #         define DYNAMIC_LOADING
           EXTERN_C_END
@@ -976,7 +978,7 @@ EXTERN_C_BEGIN
 #   endif
 # endif
 
-# if defined(POWERPC)
+# ifdef POWERPC
 #   define MACH_TYPE "POWERPC"
 #   ifdef MACOS
 #     define ALIGNMENT 2  /* Still necessary?  Could it be 4?   */
@@ -1091,9 +1093,7 @@ EXTERN_C_BEGIN
 #       define SIG_SUSPEND SIGUSR1
 #       define SIG_THR_RESTART SIGUSR2
 #       define FREEBSD_STACKBOTTOM
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-#       endif
+#       define DYNAMIC_LOADING
         extern char etext[];
 #       define DATASTART GC_FreeBSDGetDataStart(0x1000, (ptr_t)etext)
 #       define DATASTART_USES_BSDGETDATASTART
@@ -1315,9 +1315,7 @@ EXTERN_C_BEGIN
 #       define SIG_SUSPEND SIGUSR1
 #       define SIG_THR_RESTART SIGUSR2
 #       define FREEBSD_STACKBOTTOM
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-#       endif
+#       define DYNAMIC_LOADING
         extern char etext[];
         extern char edata[];
 #       if !defined(CPPCHECK)
@@ -1468,7 +1466,7 @@ EXTERN_C_BEGIN
 #   ifdef LINUX
 #       define OS_TYPE "LINUX"
 #       define LINUX_STACKBOTTOM
-#       if !defined(GC_LINUX_THREADS) || !defined(REDIRECT_MALLOC)
+#       if !defined(REDIRECT_MALLOC)
 #           define MPROTECT_VDB
 #       else
             /* We seem to get random errors in incremental mode,        */
@@ -1545,6 +1543,8 @@ EXTERN_C_BEGIN
 #   endif
 #   ifdef CYGWIN32
 #       define OS_TYPE "CYGWIN32"
+#       define WOW64_THREAD_CONTEXT_WORKAROUND
+#       define RETRY_GET_THREAD_CONTEXT
 #       define DATASTART ((ptr_t)GC_DATASTART)  /* From gc.h */
 #       define DATAEND   ((ptr_t)GC_DATAEND)
 #       ifdef USE_WINALLOC
@@ -1578,6 +1578,8 @@ EXTERN_C_BEGIN
 #   endif
 #   ifdef MSWIN32
 #       define OS_TYPE "MSWIN32"
+#       define WOW64_THREAD_CONTEXT_WORKAROUND
+#       define RETRY_GET_THREAD_CONTEXT
                 /* STACKBOTTOM and DATASTART are handled specially in   */
                 /* os_dep.c.                                            */
 #       define MPROTECT_VDB
@@ -1834,7 +1836,7 @@ EXTERN_C_BEGIN
 #       define ALIGNMENT 4
 #       define DATAEND /* not needed */
 #   endif
-#   if defined(NETBSD)
+#   ifdef NETBSD
 #     define OS_TYPE "NETBSD"
 #     define ALIGNMENT 4
 #     define HEURISTIC2
@@ -1878,9 +1880,7 @@ EXTERN_C_BEGIN
 #    define SIG_SUSPEND SIGUSR1
 #    define SIG_THR_RESTART SIGUSR2
 #    define FREEBSD_STACKBOTTOM
-#    ifdef __ELF__
-#      define DYNAMIC_LOADING
-#    endif
+#    define DYNAMIC_LOADING
      extern char etext[];
 #    define DATASTART GC_FreeBSDGetDataStart(0x1000, (ptr_t)etext)
 #    define DATASTART_USES_BSDGETDATASTART
@@ -2048,9 +2048,7 @@ EXTERN_C_BEGIN
 #       define SIG_THR_RESTART SIGUSR2
                 /* SIGTSTP and SIGCONT could be used alternatively.     */
 #       define FREEBSD_STACKBOTTOM
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-#       endif
+#       define DYNAMIC_LOADING
 /* Handle unmapped hole alpha*-*-freebsd[45]* puts between etext and edata. */
         extern char etext[];
         extern char edata[];
@@ -2100,9 +2098,11 @@ EXTERN_C_BEGIN
 #       endif
         extern int _end[];
 #       define DATAEND ((ptr_t)(_end))
-#       define MPROTECT_VDB
+#       if !defined(REDIRECT_MALLOC)
+#           define MPROTECT_VDB
                 /* Has only been superficially tested.  May not */
                 /* work on all versions.                        */
+#       endif
 #   endif
 # endif
 
@@ -2165,8 +2165,10 @@ EXTERN_C_BEGIN
           /* statically linked executables and an undefined reference   */
           /* to _DYNAMIC                                                */
 #       endif
-#       define MPROTECT_VDB
+#       if !defined(REDIRECT_MALLOC)
+#         define MPROTECT_VDB
                 /* Requires Linux 2.3.47 or later.      */
+#       endif
         extern int _end[];
 #       define DATAEND ((ptr_t)(_end))
 #       ifdef __GNUC__
@@ -2278,7 +2280,7 @@ EXTERN_C_BEGIN
 #   ifdef LINUX
 #     define OS_TYPE "LINUX"
 #     define LINUX_STACKBOTTOM
-#     if !defined(GC_LINUX_THREADS) || !defined(REDIRECT_MALLOC)
+#     if !defined(REDIRECT_MALLOC)
 #       define MPROTECT_VDB
 #     endif
 #     define DYNAMIC_LOADING
@@ -2300,7 +2302,9 @@ EXTERN_C_BEGIN
 #     define DATAEND   ((ptr_t)get_end())
 #     define STACKBOTTOM ((ptr_t)0x16fdfffff)
 #     define USE_MMAP_ANON
-#     define MPROTECT_VDB
+      /* MPROTECT_VDB causes use of non-public API like exc_server,     */
+      /* this could be a reason for blocking the client application in  */
+      /* the store.                                                     */
       EXTERN_C_END
 #     include <unistd.h>
       EXTERN_C_BEGIN
@@ -2318,9 +2322,7 @@ EXTERN_C_BEGIN
 #       define MPROTECT_VDB
 #     endif
 #     define FREEBSD_STACKBOTTOM
-#     ifdef __ELF__
-#       define DYNAMIC_LOADING
-#     endif
+#     define DYNAMIC_LOADING
       extern char etext[];
 #     define DATASTART GC_FreeBSDGetDataStart(0x1000, (ptr_t)etext)
 #     define DATASTART_USES_BSDGETDATASTART
@@ -2361,6 +2363,13 @@ EXTERN_C_BEGIN
       void *switch_get_stack_bottom(void);
 #     define STACKBOTTOM ((ptr_t)switch_get_stack_bottom())
 #   endif
+#   ifdef MSWIN32   /* UWP */
+#     define OS_TYPE "MSWIN32"
+      /* TODO: Enable GWW_VDB and/or MPROTECT_VDB */
+#     ifndef DATAEND
+#       define DATAEND  /* not needed */
+#     endif
+#   endif
 #   ifdef NOSYS
       /* __data_start is usually defined in the target linker script.   */
       extern int __data_start[];
@@ -2393,20 +2402,19 @@ EXTERN_C_BEGIN
 #   ifdef LINUX
 #       define OS_TYPE "LINUX"
 #       define LINUX_STACKBOTTOM
-#       if !defined(GC_LINUX_THREADS) || !defined(REDIRECT_MALLOC)
+#       if !defined(REDIRECT_MALLOC)
 #           define MPROTECT_VDB
 #       endif
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-            EXTERN_C_END
-#           include <features.h>
-            EXTERN_C_BEGIN
-#           if defined(__GLIBC__) && __GLIBC__ >= 2 \
+#       define DYNAMIC_LOADING
+        EXTERN_C_END
+#       include <features.h>
+        EXTERN_C_BEGIN
+#       if defined(__GLIBC__) && __GLIBC__ >= 2 \
                 || defined(HOST_ANDROID) || defined(HOST_TIZEN)
-#                define SEARCH_FOR_DATA_START
-#           else
-                 extern char **__environ;
-#                define DATASTART ((ptr_t)(&__environ))
+#           define SEARCH_FOR_DATA_START
+#       else
+            extern char **__environ;
+#           define DATASTART ((ptr_t)(&__environ))
                               /* hideous kludge: __environ is the first */
                               /* word in crt0.o, and delimits the start */
                               /* of the data segment, no matter which   */
@@ -2415,13 +2423,9 @@ EXTERN_C_BEGIN
                               /* would include .rodata, which may       */
                               /* contain large read-only data tables    */
                               /* that we'd rather not scan.             */
-#           endif
-            extern int _end[];
-#           define DATAEND ((ptr_t)(_end))
-#       else
-            extern int etext[];
-#           define DATASTART ((ptr_t)((((word)(etext)) + 0xfff) & ~0xfff))
 #       endif
+        extern int _end[];
+#       define DATAEND ((ptr_t)(_end))
 #   endif
 #   ifdef MSWINCE
 #     define OS_TYPE "MSWINCE"
@@ -2436,9 +2440,7 @@ EXTERN_C_BEGIN
 #     define SIG_SUSPEND SIGUSR1
 #     define SIG_THR_RESTART SIGUSR2
 #     define FREEBSD_STACKBOTTOM
-#     ifdef __ELF__
-#       define DYNAMIC_LOADING
-#     endif
+#     define DYNAMIC_LOADING
       extern char etext[];
 #     define DATASTART GC_FreeBSDGetDataStart(0x1000, (ptr_t)etext)
 #     define DATASTART_USES_BSDGETDATASTART
@@ -2452,7 +2454,7 @@ EXTERN_C_BEGIN
 #     define DATAEND   ((ptr_t)get_end())
 #     define STACKBOTTOM ((ptr_t)0x30000000)
 #     define USE_MMAP_ANON
-#     define MPROTECT_VDB
+      /* MPROTECT_VDB causes use of non-public API.     */
       EXTERN_C_END
 #     include <unistd.h>
       EXTERN_C_BEGIN
@@ -2497,6 +2499,13 @@ EXTERN_C_BEGIN
 #     define DATAEND (ptr_t)(Image$$ZI$$ZI$$Limit)
       void *n3ds_get_stack_bottom(void);
 #     define STACKBOTTOM ((ptr_t)n3ds_get_stack_bottom())
+#   endif
+#   ifdef MSWIN32   /* UWP */
+#     define OS_TYPE "MSWIN32"
+      /* TODO: Enable GWW_VDB and/or MPROTECT_VDB */
+#     ifndef DATAEND
+#       define DATAEND  /* not needed */
+#     endif
 #   endif
 #   ifdef NOSYS
       /* __data_start is usually defined in the target linker script.  */
@@ -2646,25 +2655,20 @@ EXTERN_C_BEGIN
 #   ifdef LINUX
 #       define OS_TYPE "LINUX"
 #       define LINUX_STACKBOTTOM
-#       if !defined(GC_LINUX_THREADS) || !defined(REDIRECT_MALLOC)
+#       if !defined(REDIRECT_MALLOC)
 #           define MPROTECT_VDB
 #       else
             /* We seem to get random errors in incremental mode,        */
             /* possibly because Linux threads is itself a malloc client */
             /* and can't deal with the signals.                         */
 #       endif
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-            EXTERN_C_END
-#           include <features.h>
-            EXTERN_C_BEGIN
-#           define SEARCH_FOR_DATA_START
-            extern int _end[];
-#           define DATAEND ((ptr_t)(_end))
-#       else
-             extern int etext[];
-#            define DATASTART ((ptr_t)((((word)(etext)) + 0xfff) & ~0xfff))
-#       endif
+#       define DYNAMIC_LOADING
+        EXTERN_C_END
+#       include <features.h>
+        EXTERN_C_BEGIN
+#       define SEARCH_FOR_DATA_START
+        extern int _end[];
+#       define DATAEND ((ptr_t)(_end))
 #       if defined(__GLIBC__) && !defined(__UCLIBC__)
           /* A workaround for GCF (Google Cloud Function) which does    */
           /* not support mmap() for "/dev/zero".  Should not cause any  */
@@ -2721,9 +2725,7 @@ EXTERN_C_BEGIN
                 /* SIGTSTP and SIGCONT could be used alternatively.     */
 #       endif
 #       define FREEBSD_STACKBOTTOM
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-#       endif
+#       define DYNAMIC_LOADING
         extern char etext[];
 #       define DATASTART GC_FreeBSDGetDataStart(0x1000, (ptr_t)etext)
 #       define DATASTART_USES_BSDGETDATASTART
@@ -2731,13 +2733,9 @@ EXTERN_C_BEGIN
 #   ifdef NETBSD
 #       define OS_TYPE "NETBSD"
 #       define HEURISTIC2
-#       ifdef __ELF__
-            extern ptr_t GC_data_start;
-#           define DATASTART GC_data_start
-#           define DYNAMIC_LOADING
-#       else
-#           define SEARCH_FOR_DATA_START
-#       endif
+        extern ptr_t GC_data_start;
+#       define DATASTART GC_data_start
+#       define DYNAMIC_LOADING
 #   endif
 #   ifdef HAIKU
 #     define OS_TYPE "HAIKU"
@@ -2799,6 +2797,7 @@ EXTERN_C_BEGIN
 #   endif
 #   ifdef CYGWIN32
 #       define OS_TYPE "CYGWIN32"
+#       define RETRY_GET_THREAD_CONTEXT
 #       ifdef USE_WINALLOC
 #         define GWW_VDB
 #       else
@@ -2835,6 +2834,7 @@ EXTERN_C_BEGIN
 #   endif
 #   ifdef MSWIN32
 #       define OS_TYPE "MSWIN32"
+#       define RETRY_GET_THREAD_CONTEXT
                 /* STACKBOTTOM and DATASTART are handled specially in   */
                 /* os_dep.c.                                            */
 #       if !defined(__GNUC__) || defined(__INTEL_COMPILER) \
@@ -2855,26 +2855,22 @@ EXTERN_C_BEGIN
 #   define MACH_TYPE "HEXAGON"
 #   define ALIGNMENT 4
 #   ifdef LINUX
-#       define OS_TYPE "LINUX"
-#       define LINUX_STACKBOTTOM
+#     define OS_TYPE "LINUX"
+#     define LINUX_STACKBOTTOM
+#     if !defined(REDIRECT_MALLOC)
 #       define MPROTECT_VDB
-#       ifdef __ELF__
-#           define DYNAMIC_LOADING
-            EXTERN_C_END
-#           include <features.h>
-            EXTERN_C_BEGIN
-#           if defined(__GLIBC__) && __GLIBC__ >= 2
-#               define SEARCH_FOR_DATA_START
-#           else
-#               error Unknown Hexagon libc configuration
-#           endif
-            extern int _end[];
-#           define DATAEND ((ptr_t)(_end))
-#       elif !defined(CPPCHECK)
-#           error Bad Hexagon Linux configuration
-#       endif
-#   else
-#       error Unknown Hexagon OS configuration
+#     endif
+#     define DYNAMIC_LOADING
+      EXTERN_C_END
+#     include <features.h>
+      EXTERN_C_BEGIN
+#     if defined(__GLIBC__)
+#       define SEARCH_FOR_DATA_START
+#     elif !defined(CPPCHECK)
+#       error Unknown Hexagon libc configuration
+#     endif
+      extern int _end[];
+#     define DATAEND ((ptr_t)(_end))
 #   endif
 # endif
 
@@ -2927,6 +2923,10 @@ EXTERN_C_BEGIN
 #if defined(__GLIBC__) && !defined(DONT_USE_LIBC_PRIVATES)
   /* Use glibc's stack-end marker. */
 # define USE_LIBC_PRIVATES
+#endif
+
+#ifdef NO_RETRY_GET_THREAD_CONTEXT
+# undef RETRY_GET_THREAD_CONTEXT
 #endif
 
 #if defined(LINUX_STACKBOTTOM) && defined(NO_PROC_STAT) \
@@ -3176,6 +3176,11 @@ EXTERN_C_BEGIN
 #if defined(BASE_ATOMIC_OPS_EMULATED)
   /* GC_write_fault_handler() cannot use lock-based atomic primitives   */
   /* as this could lead to a deadlock.                                  */
+# undef MPROTECT_VDB
+#endif
+
+#if defined(USE_PROC_FOR_LIBRARIES) && defined(GC_LINUX_THREADS)
+  /* Incremental GC is incompatible with /proc roots.   */
 # undef MPROTECT_VDB
 #endif
 
@@ -3438,6 +3443,14 @@ EXTERN_C_BEGIN
 
 #if (defined(NO_GETENV) || defined(MSWINCE)) && !defined(NO_GETENV_WIN32)
 # define NO_GETENV_WIN32
+#endif
+
+#if !defined(MSGBOX_ON_ERROR) && !defined(NO_MSGBOX_ON_ERROR) \
+    && !defined(SMALL_CONFIG) && defined(MSWIN32) \
+    && !defined(MSWINRT_FLAVOR) && !defined(MSWIN_XBOX1)
+  /* Show Windows message box with "OK" button on a GC fatal error.     */
+  /* Client application is terminated once the user clicks the button.  */
+# define MSGBOX_ON_ERROR
 #endif
 
 #ifndef STRTOULL

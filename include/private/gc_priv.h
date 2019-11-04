@@ -22,7 +22,7 @@
 # include "config.h"
 #endif
 
-#ifndef GC_BUILD
+#if !defined(GC_BUILD) && !defined(NOT_GCBUILD)
 # define GC_BUILD
 #endif
 
@@ -166,6 +166,14 @@ typedef int GC_bool;
 # define REGISTER register
 #endif
 
+#if defined(CPPCHECK)
+# define MACRO_BLKSTMT_BEGIN {
+# define MACRO_BLKSTMT_END   }
+#else
+# define MACRO_BLKSTMT_BEGIN do {
+# define MACRO_BLKSTMT_END   } while (0)
+#endif
+
 #ifndef HEADERS_H
 # include "gc_hdrs.h"
 #endif
@@ -255,6 +263,15 @@ typedef int GC_bool;
 # ifndef AO_HAVE_compiler_barrier
 #   define AO_HAVE_compiler_barrier 1
 # endif
+#endif
+
+#if defined(MSWIN32) || defined(MSWINCE) || defined(CYGWIN32)
+# ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN 1
+# endif
+# define NOSERVICE
+# include <windows.h>
+# include <winbase.h>
 #endif
 
 #include "gc_locks.h"
@@ -448,12 +465,6 @@ EXTERN_C_END
                         /* The total time difference could be computed as   */
                         /* MS_TIME_DIFF(a,b)*1000000+NS_FRAC_TIME_DIFF(a,b).*/
 #elif defined(MSWIN32) || defined(MSWINCE) || defined(WINXP_USE_PERF_COUNTER)
-# ifndef WIN32_LEAN_AND_MEAN
-#   define WIN32_LEAN_AND_MEAN 1
-# endif
-# define NOSERVICE
-# include <windows.h>
-# include <winbase.h>
 # if defined(MSWINRT_FLAVOR) || defined(WINXP_USE_PERF_COUNTER)
 #   define CLOCK_TYPE ULONGLONG
 #   define GET_TIME(x) \
@@ -628,21 +639,21 @@ EXTERN_C_BEGIN
 /* literals.  C_msg should not contain format specifiers.  Arguments    */
 /* should match their format specifiers.                                */
 #define ABORT_ARG1(C_msg, C_fmt, arg1) \
-                do { \
+                MACRO_BLKSTMT_BEGIN \
                   GC_INFOLOG_PRINTF(C_msg /* + */ C_fmt "\n", arg1); \
                   ABORT(C_msg); \
-                } while (0)
+                MACRO_BLKSTMT_END
 #define ABORT_ARG2(C_msg, C_fmt, arg1, arg2) \
-                do { \
+                MACRO_BLKSTMT_BEGIN \
                   GC_INFOLOG_PRINTF(C_msg /* + */ C_fmt "\n", arg1, arg2); \
                   ABORT(C_msg); \
-                } while (0)
+                MACRO_BLKSTMT_END
 #define ABORT_ARG3(C_msg, C_fmt, arg1, arg2, arg3) \
-                do { \
+                MACRO_BLKSTMT_BEGIN \
                   GC_INFOLOG_PRINTF(C_msg /* + */ C_fmt "\n", \
                                     arg1, arg2, arg3); \
                   ABORT(C_msg); \
-                } while (0)
+                MACRO_BLKSTMT_END
 
 /* Same as ABORT but does not have 'no-return' attribute.       */
 /* ABORT on a dummy condition (which is always true).           */
@@ -1565,8 +1576,7 @@ GC_EXTERN size_t GC_page_size;
 #endif
 
 #if defined(MSWIN32) || defined(MSWINCE) || defined(CYGWIN32)
-  struct _SYSTEM_INFO;
-  GC_EXTERN struct _SYSTEM_INFO GC_sysinfo;
+  GC_EXTERN SYSTEM_INFO GC_sysinfo;
   GC_INNER GC_bool GC_is_heap_base(void *p);
 #endif
 
@@ -1766,11 +1776,9 @@ GC_INNER void GC_with_callee_saves_pushed(void (*fn)(ptr_t, void *),
   /* pointer to the top of the corresponding memory stack.              */
   ptr_t GC_save_regs_in_stack(void);
 #endif
-                        /* Push register contents onto mark stack.      */
 
-#if defined(MSWIN32) || defined(MSWINCE)
-  void __cdecl GC_push_one(word p);
-#else
+                        /* Push register contents onto mark stack.      */
+#if defined(AMIGA) || defined(MACOS) || defined(GC_DARWIN_THREADS)
   void GC_push_one(word p);
                               /* If p points to an object, mark it    */
                               /* and push contents on the mark stack  */
@@ -1778,6 +1786,11 @@ GC_INNER void GC_with_callee_saves_pushed(void (*fn)(ptr_t, void *),
                               /* accepts interior pointers, i.e. this */
                               /* is appropriate for pointers found on */
                               /* stack.                               */
+#endif
+
+#ifdef GC_WIN32_THREADS
+  /* Same as GC_push_one but for a sequence of registers.       */
+  GC_INNER void GC_push_many_regs(const word *regs, unsigned count);
 #endif
 
 #if defined(PRINT_BLACK_LIST) || defined(KEEP_BACK_PTRS)
@@ -2345,15 +2358,15 @@ GC_EXTERN signed_word GC_bytes_found;
 #endif
 
 #ifdef THREADS
-# if defined(MSWIN32) || defined(MSWINCE) || defined(MSWIN_XBOX1)
+# if (defined(MSWIN32) && !defined(CONSOLE_LOG)) || defined(MSWINCE)
     GC_EXTERN CRITICAL_SECTION GC_write_cs; /* defined in misc.c */
-# endif
-# if defined(GC_ASSERTIONS) && (defined(MSWIN32) || defined(MSWINCE))
-    GC_EXTERN GC_bool GC_write_disabled;
+#   ifdef GC_ASSERTIONS
+      GC_EXTERN GC_bool GC_write_disabled;
                                 /* defined in win32_threads.c;  */
                                 /* protected by GC_write_cs.    */
 
-# endif
+#   endif
+# endif /* MSWIN32 || MSWINCE */
 # if defined(GC_DISABLE_INCREMENTAL) || defined(HAVE_LOCKFREE_AO_OR)
 #   define GC_acquire_dirty_lock() (void)0
 #   define GC_release_dirty_lock() (void)0

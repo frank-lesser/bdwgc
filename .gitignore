@@ -14,6 +14,7 @@
 
 *.gc.log
 .dirstamp
+/*.a
 /*_bench.log
 /*_bench.trs
 /*test.log
@@ -23,8 +24,6 @@
 /add_gc_prefix
 /base_lib
 /bdw-gc.pc
-/bsd-libgc.a
-/bsd-libleak.a
 /c++
 /config.cache
 /config.log
@@ -39,6 +38,7 @@
 /cordtest
 /core
 /de
+/de.dir/
 /disclaim_bench
 /disclaim_test
 /disclaim_weakmap_test
@@ -46,7 +46,6 @@
 /dont_ar_3
 /dont_ar_4
 /gc-*
-/gc.a
 /gc.log
 /gcname
 /gctest
@@ -57,11 +56,7 @@
 /if_not_there
 /initsecondarythread_test
 /leaktest
-/libalphagc.so
-/libgc.so
-/libgcmt-dll.dll.a
-/libirixgc.so
-/liblinuxgc.so
+/lib*.so
 /libtool
 /middletest
 /realloc_test
@@ -127,8 +122,6 @@ stamp-h1
 /cord/CMakeFiles/
 /cord/Makefile
 /gc.sln
-/libgc*-dll.so
-/libgc*-lib.a
 /tests/*.vcxproj
 /tests/*.vcxproj.filters
 /tests/*test

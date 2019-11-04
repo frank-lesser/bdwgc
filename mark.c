@@ -493,7 +493,8 @@ static void alloc_mark_stack(size_t);
         /* to the exception case; our results are invalid and we have   */
         /* to start over.  This cannot be prevented since we can't      */
         /* block in DllMain.                                            */
-        if (GC_started_thread_while_stopped()) goto handle_ex;
+        if (GC_started_thread_while_stopped())
+          goto handle_thr_start;
 #     endif
      rm_handler:
       return ret_val;
@@ -530,7 +531,7 @@ static void alloc_mark_stack(size_t);
           goto handle_ex;
 #     if defined(GC_WIN32_THREADS) && !defined(GC_PTHREADS)
         if (GC_started_thread_while_stopped())
-          goto handle_ex;
+          goto handle_thr_start;
 #     endif
     rm_handler:
       /* Uninstall the exception handler.       */
@@ -544,10 +545,12 @@ static void alloc_mark_stack(size_t);
       /* thread that is in the process of exiting, and disappears       */
       /* while we are marking it.  This seems extremely difficult to    */
       /* avoid otherwise.                                               */
-      if (GC_incremental) {
-        WARN("Incremental GC incompatible with /proc roots\n", 0);
-        /* I'm not sure if this could still work ...    */
-      }
+#     ifndef DEFAULT_VDB
+        if (GC_auto_incremental) {
+          WARN("Incremental GC incompatible with /proc roots\n", 0);
+          /* I'm not sure if this could still work ...  */
+        }
+#     endif
       GC_setup_temporary_fault_handler();
       if(SETJMP(GC_jmp_buf) != 0) goto handle_ex;
       ret_val = GC_mark_some_inner(cold_gc_frame);
@@ -569,6 +572,10 @@ handle_ex:
           warned_gc_no = GC_gc_no;
         }
       }
+#   if (defined(MSWIN32) || defined(MSWINCE)) && defined(GC_WIN32_THREADS) \
+       && !defined(GC_PTHREADS)
+      handle_thr_start:
+#   endif
       /* We have bad roots on the stack.  Discard mark stack.   */
       /* Rescan from marked objects.  Redetermine roots.        */
 #     ifdef REGISTER_LIBRARIES_EARLY
@@ -1426,14 +1433,21 @@ GC_API void GC_CALL GC_push_all(void *bottom, void *top)
   }
 #endif /* GC_DISABLE_INCREMENTAL */
 
-#if defined(MSWIN32) || defined(MSWINCE)
-  void __cdecl GC_push_one(word p)
-#else
+#if defined(AMIGA) || defined(MACOS) || defined(GC_DARWIN_THREADS)
   void GC_push_one(word p)
-#endif
-{
+  {
     GC_PUSH_ONE_STACK(p, MARKED_FROM_REGISTER);
-}
+  }
+#endif
+
+#ifdef GC_WIN32_THREADS
+  GC_INNER void GC_push_many_regs(const word *regs, unsigned count)
+  {
+    unsigned i;
+    for (i = 0; i < count; i++)
+      GC_PUSH_ONE_STACK(regs[i], MARKED_FROM_REGISTER);
+  }
+#endif
 
 GC_API struct GC_ms_entry * GC_CALL GC_mark_and_push(void *obj,
                                                 mse *mark_stack_ptr,
@@ -1474,12 +1488,13 @@ GC_API struct GC_ms_entry * GC_CALL GC_mark_and_push(void *obj,
 
     PREFETCH(p);
     GET_HDR(p, hhdr);
-    if (EXPECT(IS_FORWARDING_ADDR_OR_NIL(hhdr), FALSE)
-        && (NULL == hhdr
+    if (EXPECT(IS_FORWARDING_ADDR_OR_NIL(hhdr), FALSE)) {
+      if (NULL == hhdr
             || (r = (ptr_t)GC_base(p)) == NULL
-            || (hhdr = HDR(r)) == NULL)) {
+            || (hhdr = HDR(r)) == NULL) {
         GC_ADD_TO_BLACK_LIST_STACK(p, source);
         return;
+      }
     }
     if (EXPECT(HBLK_IS_FREE(hhdr), FALSE)) {
         GC_ADD_TO_BLACK_LIST_NORMAL(p, source);
