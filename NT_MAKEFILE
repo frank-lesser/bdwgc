@@ -77,6 +77,8 @@ CFLAGS_SPECIFIC=$(CFLAGS_DEBUG) $(CFLAGS_GCDLL) $(CFLAGS_MT)
 
 CFLAGS_DEFAULT=-DALL_INTERIOR_POINTERS -DENABLE_DISCLAIM -DGC_ATOMIC_UNCOLLECTABLE -DGC_GCJ_SUPPORT -DJAVA_FINALIZATION -DNO_EXECUTE_PERMISSION -DUSE_MUNMAP
 
+CXXFLAGS_SPECIFIC=/EHsc
+
 # Make sure that .cc is not viewed as a suffix.  It is for VC++2005, but
 # not earlier versions.  We can deal with either, but not inconsistency.
 .SUFFIXES:
@@ -96,7 +98,7 @@ OBJS= extra\gc.obj extra\msvc_dbg.obj
 
 COBJS= cord\cordbscs.obj cord\cordxtra.obj cord\cordprnt.obj
 
-all: gc.lib cord.lib gccpp.lib
+all: gc.lib cord.lib gccpp.lib gctba.lib
 
 check: gctest.exe test_cpp.exe cordtest.exe de.exe
 	gctest.exe
@@ -109,7 +111,7 @@ check: gctest.exe test_cpp.exe cordtest.exe de.exe
 # of safe uses of strncpy.  It would be nice to leave the rest enabled.
 
 .cpp.obj:
-	$(cc) $(cdebug) $(cflags) $(CFLAGS_SPECIFIC) -Iinclude $(CFLAGS_DEFAULT) -D_CRT_SECURE_NO_DEPRECATE $*.cpp /Fo$*.obj
+	$(cc) $(cdebug) $(cflags) $(CFLAGS_SPECIFIC) -Iinclude $(CFLAGS_DEFAULT) $(CXXFLAGS_SPECIFIC) -D_CRT_SECURE_NO_DEPRECATE $*.cpp /Fo$*.obj
 
 $(OBJS) tests\test.obj: include\private\gc_priv.h include\private\gc_hdrs.h include\gc.h include\private\gcconfig.h include\private\gc_locks.h include\private\gc_pmark.h include\gc_mark.h include\gc_disclaim.h include\private\msvc_dbg.h
 
@@ -121,8 +123,12 @@ gc.lib: $(OBJS)
 cord.lib: $(COBJS)
 	lib /out:cord.lib /MACHINE:$(CPU) $(COBJS)
 
-gccpp.lib: gc_cpp.obj
-	lib /out:gccpp.lib /MACHINE:$(CPU) gc_cpp.obj
+gccpp.lib: gc_badalc.obj gc_cpp.obj
+	lib /out:gccpp.lib /MACHINE:$(CPU) gc_badalc.obj gc_cpp.obj
+
+# The same as gccpp.lib but contains only gc_badalc.obj.
+gctba.lib: gc_badalc.obj
+	lib /out:gctba.lib /MACHINE:$(CPU) gc_badalc.obj
 
 !ELSE
 
@@ -132,8 +138,11 @@ gc.lib: $(OBJS)
 cord.lib: $(COBJS) gc.lib
 	$(link) $(ldebug) gc.lib /subsystem:windows /dll /INCREMENTAL:NO /pdb:"cord.pdb" /out:cord.dll /implib:cord.lib /MACHINE:$(CPU) $(COBJS)
 
-gccpp.lib: gc_cpp.obj gc.lib
-	$(link) $(ldebug) gc.lib /subsystem:windows /dll /INCREMENTAL:NO /pdb:"gccpp.pdb" /out:gccpp.dll /implib:gccpp.lib /MACHINE:$(CPU) gc_cpp.obj
+gccpp.lib: gc_badalc.obj gc_cpp.obj gc.lib
+	$(link) $(ldebug) gc.lib /subsystem:windows /dll /INCREMENTAL:NO /pdb:"gccpp.pdb" /out:gccpp.dll /implib:gccpp.lib /MACHINE:$(CPU) gc_badalc.obj gc_cpp.obj
+
+gctba.lib: gc_badalc.obj gc.lib
+	$(link) $(ldebug) gc.lib /subsystem:windows /dll /INCREMENTAL:NO /pdb:"gctba.pdb" /out:gctba.dll /implib:gctba.lib /MACHINE:$(CPU) gc_badalc.obj
 
 !ENDIF
 
@@ -156,6 +165,8 @@ de.exe: cord\tests\de.obj cord\tests\de_win.obj cord\tests\de_win.rbj gc.lib cor
 
 cordtest.exe: cord\tests\cordtest.obj gc.lib cord.lib
 	$(link) /subsystem:console /MACHINE:$(CPU) /INCREMENTAL:NO $(ldebug) $(lflags) -out:cordtest.exe cord\tests\cordtest.obj gc.lib cord.lib user32.lib
+
+gc_badalc.obj: gc_badalc.cc include\gc_cpp.h include\gc.h
 
 gc_cpp.obj: gc_cpp.cc include\gc_cpp.h include\gc.h
 
