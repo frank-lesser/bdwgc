@@ -30,6 +30,11 @@ else()
   project(gc C)
 endif()
 
+include(CheckCCompilerFlag)
+include(CheckCSourceCompiles)
+include(CheckFunctionExists)
+include(CheckIncludeFile)
+include(CheckSymbolExists)
 include(CTest)
 
 # Customize the build by passing "-D<option_name>=ON|OFF" in the command line.
@@ -44,6 +49,7 @@ option(enable_throw_bad_alloc_library "Turn on C++ gctba library build" ON)
 option(enable_gcj_support "Support for gcj" ON)
 option(enable_sigrt_signals "Use SIGRTMIN-based signals for thread suspend/resume" OFF)
 option(enable_gc_debug "Support for pointer back-tracing" OFF)
+option(disable_gc_debug "Disable debugging like GC_dump and its callees" OFF)
 option(enable_java_finalization "Support for java finalization" ON)
 option(enable_atomic_uncollectable "Support for atomic uncollectible allocation" ON)
 option(enable_redirect_malloc "Redirect malloc and friends to GC routines" OFF)
@@ -58,14 +64,10 @@ option(enable_checksums "Report erroneously cleared dirty bits" OFF)
 option(enable_werror "Pass -Werror to the C compiler (treat warnings as errors)" OFF)
 option(enable_single_obj_compilation "Compile all libgc source files into single .o" OFF)
 option(enable_handle_fork "Attempt to ensure a usable collector after fork()" ON)
+option(disable_handle_fork "Prohibit installation of pthread_atfork() handlers" OFF)
 option(install_headers "Install header files" ON)
 
 add_definitions("-DALL_INTERIOR_POINTERS -DNO_EXECUTE_PERMISSION")
-
-if (APPLE AND ("${CMAKE_OSX_ARCHITECTURES}" STREQUAL ""))
-    set(CMAKE_OSX_ARCHITECTURES "x86_64;i386"
-        CACHE STRING "Build architectures for Mac OS X" FORCE)
-endif()
 
 # Set struct packing alignment to word (instead of 1-byte).
 if (BORLAND)
@@ -144,14 +146,14 @@ if (CMAKE_USE_PTHREADS_INIT)
   if (ANDROID OR MSYS) # ANDROID variable is defined by CMake v3.7.0+.
     # Android NDK does not provide pthread_atfork.
   elseif (APPLE)
-    if (enable_handle_fork)
+    if (enable_handle_fork AND NOT disable_handle_fork)
       # The incremental mode conflicts with fork handling.
       if (enable_parallel_mark)
         add_definitions("-DHANDLE_FORK")
-      endif()
-    endif(enable_handle_fork)
+      endif(enable_parallel_mark)
+    endif()
     set(SRC ${SRC} darwin_stop_world.c)
-  elseif (enable_handle_fork)
+  elseif (enable_handle_fork AND NOT disable_handle_fork)
     add_definitions("-DHANDLE_FORK")
   endif()
   if (enable_sigrt_signals)
@@ -174,6 +176,10 @@ elseif (CMAKE_USE_WIN32_THREADS_INIT)
   set(SRC ${SRC} win32_threads.c)
 elseif (CMAKE_HP_PTHREADS_INIT OR CMAKE_USE_SPROC_INIT)
   message(FATAL_ERROR "Unsupported thread package")
+endif()
+
+if (disable_handle_fork)
+  add_definitions("-DNO_HANDLE_FORK")
 endif()
 
 if (enable_gcj_support)
@@ -209,6 +215,13 @@ if (enable_gc_debug)
     set(SRC ${SRC} backgraph.c)
   endif()
 endif(enable_gc_debug)
+
+if (disable_gc_debug)
+  add_definitions("-DNO_DEBUGGING")
+elseif (WINCE)
+  # Read environment variables from "<program>.gc.env" file.
+  add_definitions("-DGC_READ_ENV_FILE")
+endif()
 
 if (enable_redirect_malloc)
   if (enable_gc_debug)
@@ -290,8 +303,26 @@ if (MSVC)
   set(SRC ${SRC} extra/msvc_dbg.c)
 endif()
 
+# Instruct check_c_source_compiles and similar CMake checks not to ignore
+# compiler warnings (like "implicit declaration of function").
+if (NOT BORLAND AND NOT MSVC AND NOT WATCOM)
+  check_c_compiler_flag(-Werror HAVE_FLAG_WERROR)
+  if (HAVE_FLAG_WERROR)
+    SET(CMAKE_REQUIRED_FLAGS "-Werror")
+  endif(HAVE_FLAG_WERROR)
+endif()
+
 if (BUILD_SHARED_LIBS)
   add_definitions("-DGC_DLL")
+  # Pass -fvisibility=hidden option if supported.
+  check_c_compiler_flag(-fvisibility=hidden HAVE_FLAG_F_VISIBILITY_HIDDEN)
+  if (HAVE_FLAG_F_VISIBILITY_HIDDEN)
+    add_definitions("-DGC_VISIBILITY_HIDDEN_SET")
+    add_compile_options(-fvisibility=hidden)
+  else()
+    add_definitions("-DGC_NO_VISIBILITY")
+  endif()
+  check_c_compiler_flag(-Wl,--no-undefined HAVE_FLAG_WL_NO_UNDEFINED)
 else()
   add_definitions("-DGC_NOT_DLL")
   if (WIN32)
@@ -300,9 +331,85 @@ else()
   endif(WIN32)
 endif()
 
+# Disable strict aliasing optimizations.
+# It could re-enabled back by a flag passed in CFLAGS_EXTRA.
+check_c_compiler_flag(-fno-strict-aliasing HAVE_FLAG_F_NO_STRICT_ALIASING)
+if (HAVE_FLAG_F_NO_STRICT_ALIASING)
+  add_compile_options(-fno-strict-aliasing)
+endif()
+
 # Extra user-defined flags to pass both to C and C++ compilers.
 if (DEFINED CFLAGS_EXTRA)
   add_compile_options(${CFLAGS_EXTRA})
+endif()
+
+# Check whether execinfo.h header file is present.
+check_include_file(execinfo.h HAVE_EXECINFO_H)
+if (NOT HAVE_EXECINFO_H)
+  add_definitions("-DGC_MISSING_EXECINFO_H")
+endif()
+
+# Check for getcontext (uClibc can be configured without it, for example).
+check_function_exists(getcontext HAVE_GETCONTEXT)
+if (NOT HAVE_GETCONTEXT)
+  add_definitions("-DNO_GETCONTEXT")
+endif()
+
+# Check whether dl_iterate_phdr exists (as a strong symbol).
+check_function_exists(dl_iterate_phdr HAVE_DL_ITERATE_PHDR)
+if (HAVE_DL_ITERATE_PHDR)
+  add_definitions("-DHAVE_DL_ITERATE_PHDR")
+endif()
+
+check_symbol_exists(sigsetjmp setjmp.h HAVE_SIGSETJMP)
+if (NOT HAVE_SIGSETJMP)
+  add_definitions("-DGC_NO_SIGSETJMP")
+endif()
+
+# pthread_setname_np, if available, may have 1, 2 or 3 arguments.
+if (CMAKE_USE_PTHREADS_INIT)
+  check_c_source_compiles("
+#include <pthread.h>\n
+int main(void) { (void)pthread_setname_np(\"thread-name\"); return 0; }"
+    HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID)
+  if (HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID)
+    # Define to use 'pthread_setname_np(const char*)' function.
+    add_definitions("-DHAVE_PTHREAD_SETNAME_NP_WITHOUT_TID")
+  else()
+    check_c_source_compiles("
+#include <pthread.h>\n
+int main(void) {\n
+  (void)pthread_setname_np(pthread_self(), \"thread-name-%u\", 0); return 0; }"
+      HAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG)
+    if (HAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG)
+      # Define to use 'pthread_setname_np(pthread_t, const char*, void *)'.
+      add_definitions("-DHAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG")
+    else()
+      check_c_source_compiles("
+#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__) || defined(__CYGWIN__)\n
+#define _GNU_SOURCE 1\n
+#endif\n
+#include <pthread.h>\n
+int main(void) {\n
+  (void)pthread_setname_np(pthread_self(), \"thread-name\"); return 0; }"
+        HAVE_PTHREAD_SETNAME_NP_WITH_TID)
+      if (HAVE_PTHREAD_SETNAME_NP_WITH_TID)
+        # Define to use 'pthread_setname_np(pthread_t, const char*)' function.
+        add_definitions("-DHAVE_PTHREAD_SETNAME_NP_WITH_TID")
+      endif()
+    endif(HAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG)
+  endif (HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID)
+endif()
+
+# Check for dladdr (used for debugging).
+check_c_source_compiles("
+#define _GNU_SOURCE 1\n
+#include <dlfcn.h>\n
+int main(void) { Dl_info info; (void)dladdr(\"\", &info); return 0; }"
+  HAVE_DLADDR)
+if (HAVE_DLADDR)
+  # Define to use 'dladdr' function.
+  add_definitions("-DHAVE_DLADDR")
 endif()
 
 add_library(gc ${SRC})
@@ -329,6 +436,21 @@ if (build_cord)
           ARCHIVE DESTINATION lib
           RUNTIME DESTINATION bin
           INCLUDES DESTINATION include)
+endif()
+
+if (BUILD_SHARED_LIBS AND HAVE_FLAG_WL_NO_UNDEFINED)
+  # Declare that the libraries do not refer to external symbols.
+  # TODO: use add_link_options() when cmake_minimum_required > 3.13
+  target_link_libraries(gc PRIVATE -Wl,--no-undefined)
+  if (enable_cplusplus)
+    target_link_libraries(gccpp PRIVATE -Wl,--no-undefined)
+    if (enable_throw_bad_alloc_library)
+      target_link_libraries(gctba PRIVATE -Wl,--no-undefined)
+    endif(enable_throw_bad_alloc_library)
+  endif(enable_cplusplus)
+  if (build_cord)
+    target_link_libraries(cord PRIVATE -Wl,--no-undefined)
+  endif(build_cord)
 endif()
 
 install(TARGETS gc EXPORT gcExports

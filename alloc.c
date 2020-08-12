@@ -3,7 +3,7 @@
  * Copyright (c) 1991-1996 by Xerox Corporation.  All rights reserved.
  * Copyright (c) 1998 by Silicon Graphics.  All rights reserved.
  * Copyright (c) 1999-2004 Hewlett-Packard Development Company, L.P.
- * Copyright (c) 2008-2019 Ivan Maidanski
+ * Copyright (c) 2008-2020 Ivan Maidanski
  *
  * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
  * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
@@ -70,6 +70,7 @@ word GC_gc_no = 0;
 
 #ifndef NO_CLOCK
   static unsigned long full_gc_total_time = 0; /* in ms, may wrap */
+  static unsigned full_gc_total_ns_frac = 0; /* fraction of 1 ms */
   static GC_bool measure_performance = FALSE;
                 /* Do performance measurements if set to true (e.g.,    */
                 /* accumulation of the total time of full collections). */
@@ -124,7 +125,7 @@ const char * const GC_copyright[] =
 "Copyright (c) 1991-1995 by Xerox Corporation.  All rights reserved. ",
 "Copyright (c) 1996-1998 by Silicon Graphics.  All rights reserved. ",
 "Copyright (c) 1999-2009 by Hewlett-Packard Company.  All rights reserved. ",
-"Copyright (c) 2008-2019 Ivan Maidanski ",
+"Copyright (c) 2008-2020 Ivan Maidanski ",
 "THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY",
 " EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.",
 "See source code for details." };
@@ -248,6 +249,9 @@ GC_API GC_stop_func GC_CALL GC_get_stop_func(void)
     GET_TIME(current_time);
     time_diff = MS_TIME_DIFF(current_time,GC_start_time);
     nsec_diff = NS_FRAC_TIME_DIFF(current_time, GC_start_time);
+#   if defined(CPPCHECK)
+      GC_noop1((word)&nsec_diff);
+#   endif
     if (time_diff >= GC_time_limit
         && (time_diff > GC_time_limit || nsec_diff >= GC_time_lim_nsec)) {
       GC_COND_LOG_PRINTF("Abandoning stopped marking after %lu ms %lu ns"
@@ -587,15 +591,23 @@ GC_INNER GC_bool GC_try_to_collect_inner(GC_stop_func stop_func)
 #   ifndef NO_CLOCK
       if (start_time_valid) {
         CLOCK_TYPE current_time;
-        unsigned long time_diff;
+        unsigned long time_diff, ns_frac_diff;
 
         GET_TIME(current_time);
         time_diff = MS_TIME_DIFF(current_time, start_time);
-        if (measure_performance)
+        ns_frac_diff = NS_FRAC_TIME_DIFF(current_time, start_time);
+        if (measure_performance) {
           full_gc_total_time += time_diff; /* may wrap */
+          full_gc_total_ns_frac += (unsigned)ns_frac_diff;
+          if (full_gc_total_ns_frac >= 1000000U) {
+            /* Overflow of the nanoseconds part. */
+            full_gc_total_ns_frac -= 1000000U;
+            full_gc_total_time++;
+          }
+        }
         if (GC_print_stats)
-          GC_log_printf("Complete collection took %lu ms %lu ns\n", time_diff,
-                        NS_FRAC_TIME_DIFF(current_time, start_time));
+          GC_log_printf("Complete collection took %lu ms %lu ns\n",
+                        time_diff, ns_frac_diff);
       }
 #   endif
     if (GC_on_collection_event)
@@ -1268,14 +1280,6 @@ GC_API void GC_CALL GC_gcollect_and_unmap(void)
     (void)GC_try_to_collect_general(GC_never_stop_func, TRUE);
 }
 
-GC_INNER word GC_n_heap_sects = 0;
-                        /* Number of sections currently in heap. */
-
-#ifdef USE_PROC_FOR_LIBRARIES
-  GC_INNER word GC_n_memory = 0;
-                        /* Number of GET_MEM allocated memory sections. */
-#endif
-
 #ifdef USE_PROC_FOR_LIBRARIES
   /* Add HBLKSIZE aligned, GET_MEM-generated block to GC_our_memory. */
   /* Defined to do nothing if USE_PROC_FOR_LIBRARIES not set.       */
@@ -1482,11 +1486,29 @@ GC_API int GC_CALL GC_expand_hp(size_t bytes)
     return(result);
 }
 
-word GC_fo_entries = 0; /* used also in extra/MacOS.c */
-
 GC_INNER unsigned GC_fail_count = 0;
                         /* How many consecutive GC/expansion failures?  */
                         /* Reset by GC_allochblk.                       */
+
+/* The minimum value of the ratio of allocated bytes since the latest   */
+/* GC to the amount of finalizers created since that GC which triggers  */
+/* the collection instead heap expansion.  Has no effect in the         */
+/* incremental mode.                                                    */
+#if defined(GC_ALLOCD_BYTES_PER_FINALIZER) && !defined(CPPCHECK)
+  STATIC word GC_allocd_bytes_per_finalizer = GC_ALLOCD_BYTES_PER_FINALIZER;
+#else
+  STATIC word GC_allocd_bytes_per_finalizer = 10000;
+#endif
+
+GC_API void GC_CALL GC_set_allocd_bytes_per_finalizer(GC_word value)
+{
+  GC_allocd_bytes_per_finalizer = value;
+}
+
+GC_API GC_word GC_CALL GC_get_allocd_bytes_per_finalizer(void)
+{
+  return GC_allocd_bytes_per_finalizer;
+}
 
 static word last_fo_entries = 0;
 static word last_bytes_finalized = 0;
@@ -1507,8 +1529,10 @@ GC_INNER GC_bool GC_collect_or_expand(word needed_blocks,
     DISABLE_CANCEL(cancel_state);
     if (!GC_incremental && !GC_dont_gc &&
         ((GC_dont_expand && GC_bytes_allocd > 0)
-         || (GC_fo_entries > (last_fo_entries + 500)
-             && (last_bytes_finalized | GC_bytes_finalized) != 0)
+         || (GC_fo_entries > last_fo_entries
+             && (last_bytes_finalized | GC_bytes_finalized) != 0
+             && (GC_fo_entries - last_fo_entries)
+                * GC_allocd_bytes_per_finalizer > GC_bytes_allocd)
          || GC_should_collect())) {
       /* Try to do a full collection using 'default' stop_func (unless  */
       /* nothing has been allocated since the latest collection or heap */
@@ -1605,12 +1629,12 @@ GC_INNER ptr_t GC_allocobj(size_t gran, int kind)
         GC_continue_reclaim(gran, kind);
       EXIT_GC();
 #     if defined(CPPCHECK)
-        GC_noop1((word)flh);
+        GC_noop1((word)&flh);
 #     endif
       if (NULL == *flh) {
         GC_new_hblk(gran, kind);
 #       if defined(CPPCHECK)
-          GC_noop1((word)flh);
+          GC_noop1((word)&flh);
 #       endif
         if (NULL == *flh) {
           ENTER_GC();

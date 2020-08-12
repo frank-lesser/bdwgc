@@ -3,6 +3,7 @@
  * Copyright (c) 1996 by Silicon Graphics.  All rights reserved.
  * Copyright (c) 1998 by Fergus Henderson.  All rights reserved.
  * Copyright (c) 2000-2005 by Hewlett-Packard Company.  All rights reserved.
+ * Copyright (c) 2008-2020 Ivan Maidanski
  *
  * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
  * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
@@ -337,6 +338,40 @@ static ptr_t marker_sp[MAX_MARKERS - 1] = {0};
   }
 #endif /* GC_DARWIN_THREADS */
 
+#ifdef HAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG /* NetBSD */
+  static void set_marker_thread_name(unsigned id)
+  {
+    int err = pthread_setname_np(pthread_self(), "GC-marker-%zu",
+                                 (void*)(size_t)id);
+    if (err != 0)
+      WARN("pthread_setname_np failed, errno = %" WARN_PRIdPTR "\n", err);
+  }
+#elif defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID) \
+      || defined(HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID)
+  static void set_marker_thread_name(unsigned id)
+  {
+    char name_buf[16];  /* pthread_setname_np may fail for longer names */
+    int len = sizeof("GC-marker-") - 1;
+
+    /* Compose the name manually as snprintf may be unavailable or      */
+    /* "%u directive output may be truncated" warning may occur.        */
+    BCOPY("GC-marker-", name_buf, len);
+    if (id >= 10)
+      name_buf[len++] = (char)('0' + (id / 10) % 10);
+    name_buf[len] = (char)('0' + id % 10);
+    name_buf[len + 1] = '\0';
+
+#   ifdef HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID /* iOS, OS X */
+      (void)pthread_setname_np(name_buf);
+#   else /* Linux, Solaris, etc. */
+      if (pthread_setname_np(pthread_self(), name_buf) != 0)
+        WARN("pthread_setname_np failed\n", 0);
+#   endif
+  }
+#else
+# define set_marker_thread_name(id) (void)(id)
+#endif
+
 STATIC void * GC_mark_thread(void * id)
 {
   word my_mark_no = 0;
@@ -346,6 +381,7 @@ STATIC void * GC_mark_thread(void * id)
   DISABLE_CANCEL(cancel_state);
                          /* Mark threads are not cancellable; they      */
                          /* should be invisible to client.              */
+  set_marker_thread_name((unsigned)(word)id);
   marker_sp[(word)id] = GC_approx_sp();
 # ifdef IA64
     marker_bsp[(word)id] = GC_save_regs_in_stack();
@@ -1393,7 +1429,7 @@ GC_INNER void GC_do_blocking_inner(ptr_t data, void * context GC_ATTR_UNUSED)
     d -> client_data = (d -> fn)(d -> client_data);
     LOCK();   /* This will block if the world is stopped.       */
 #   if defined(CPPCHECK)
-      GC_noop1((unsigned)me->thread_blocked);
+      GC_noop1((word)&me->thread_blocked);
 #   endif
     me -> thread_blocked = FALSE;
 #   if defined(GC_DARWIN_THREADS) && !defined(DARWIN_DONT_PARSE_STACK)

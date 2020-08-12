@@ -1874,6 +1874,27 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
 
 #if !defined(PCR) && !defined(GC_WIN32_THREADS) && !defined(GC_PTHREADS)
 
+#if defined(_DEBUG) && (_MSC_VER >= 1900) /* VS 2015+ */
+# ifndef _CRTDBG_MAP_ALLOC
+#   define _CRTDBG_MAP_ALLOC
+# endif
+# include <crtdbg.h>
+  /* Ensure that there is no system-malloc-allocated objects at normal  */
+  /* exit (i.e. no such memory leaked).                                 */
+# define CRTMEM_CHECK_INIT() \
+        (void)_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF)
+# define CRTMEM_DUMP_LEAKS() \
+        do { \
+          if (_CrtDumpMemoryLeaks()) { \
+            GC_printf("System-malloc-allocated memory leaked\n"); \
+            FAIL; \
+          } \
+        } while (0)
+#else
+# define CRTMEM_CHECK_INIT() (void)0
+# define CRTMEM_DUMP_LEAKS() (void)0
+#endif // !_MSC_VER
+
 #if ((defined(MSWIN32) && !defined(__MINGW32__)) || defined(MSWINCE)) \
     && !defined(NO_WINMAIN_ENTRY)
   int APIENTRY WinMain(HINSTANCE instance GC_ATTR_UNUSED,
@@ -1894,6 +1915,7 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
   int main(void)
 #endif
 {
+    CRTMEM_CHECK_INIT();
 #   if defined(CPPCHECK) && !defined(NO_WINMAIN_ENTRY) \
        && ((defined(MSWIN32) && !defined(__MINGW32__)) || defined(MSWINCE))
       GC_noop1((GC_word)&WinMain);
@@ -1901,6 +1923,7 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
       GC_noop1((GC_word)&Init);
 #   endif
     n_tests = 0;
+    GC_clear_exclusion_table(); /* no-op as called before GC init */
 #   if defined(MACOS)
         /* Make sure we have lots and lots of stack space.      */
         SetMinimumStack(cMinStackSpace);
@@ -1970,6 +1993,7 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
          UNTESTED(GetSymbolNameFromStack);
 #      endif
        UNTESTED(GC_abort_on_oom);
+       UNTESTED(GC_get_allocd_bytes_per_finalizer);
        UNTESTED(GC_get_bytes_since_gc);
        UNTESTED(GC_get_dont_expand);
        UNTESTED(GC_get_dont_precollect);
@@ -1992,6 +2016,7 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
        UNTESTED(GC_get_time_limit);
        UNTESTED(GC_get_warn_proc);
        UNTESTED(GC_is_disabled);
+       UNTESTED(GC_set_allocd_bytes_per_finalizer);
        UNTESTED(GC_set_dont_precollect);
        UNTESTED(GC_set_finalize_on_demand);
        UNTESTED(GC_set_finalizer_notifier);
@@ -2013,8 +2038,6 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
        UNTESTED(GC_deinit);
        UNTESTED(GC_strndup);
        UNTESTED(GC_posix_memalign);
-       UNTESTED(GC_new_free_list);
-       UNTESTED(GC_new_kind);
        UNTESTED(GC_new_proc);
        UNTESTED(GC_clear_roots);
        UNTESTED(GC_exclude_static_roots);
@@ -2081,9 +2104,10 @@ void GC_CALLBACK warn_proc(char *msg, GC_word p)
          UNTESTED(GC_debug_wcsdup);
 #      endif
 #   endif
-#   ifdef MSWIN32
+#   if defined(MSWIN32) || defined(MSWINCE) || defined(CYGWIN32)
       GC_win32_free_heap();
 #   endif
+    CRTMEM_DUMP_LEAKS();
 #   ifdef RTEMS
       exit(0);
 #   else

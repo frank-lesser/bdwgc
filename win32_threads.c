@@ -4,6 +4,7 @@
  * Copyright (c) 1998 by Fergus Henderson.  All rights reserved.
  * Copyright (c) 2000-2008 by Hewlett-Packard Development Company.
  * All rights reserved.
+ * Copyright (c) 2008-2020 Ivan Maidanski
  *
  * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
  * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
@@ -2001,6 +2002,56 @@ GC_INNER void GC_get_next_stack(char *start, char *limit,
                         /* only a few entries).                         */
 # endif
 
+# if defined(GC_PTHREADS) && defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID)
+    static void set_marker_thread_name(unsigned id)
+    {
+      /* This code is the same as in pthread_support.c. */
+      char name_buf[16]; /* pthread_setname_np may fail for longer names */
+      int len = sizeof("GC-marker-") - 1;
+
+      /* Compose the name manually as snprintf may be unavailable or    */
+      /* "%u directive output may be truncated" warning may occur.      */
+      BCOPY("GC-marker-", name_buf, len);
+      if (id >= 10)
+        name_buf[len++] = (char)('0' + (id / 10) % 10);
+      name_buf[len] = (char)('0' + id % 10);
+      name_buf[len + 1] = '\0';
+
+      if (pthread_setname_np(pthread_self(), name_buf) != 0)
+        WARN("pthread_setname_np failed\n", 0);
+    }
+
+# elif !defined(MSWINCE)
+    /* A pointer to SetThreadDescription() which is available since     */
+    /* Windows 10.  The function prototype is in processthreadsapi.h.   */
+    static FARPROC setThreadDescription_fn;
+
+    static void set_marker_thread_name(unsigned id)
+    {
+      WCHAR name_buf[16];
+      int len = sizeof(L"GC-marker-") / sizeof(WCHAR) - 1;
+      HRESULT hr;
+
+      if (!setThreadDescription_fn) return; /* missing SetThreadDescription */
+
+      /* Compose the name manually as swprintf may be unavailable.      */
+      BCOPY(L"GC-marker-", name_buf, len * sizeof(WCHAR));
+      if (id >= 10)
+        name_buf[len++] = (WCHAR)('0' + (id / 10) % 10);
+      name_buf[len] = (WCHAR)('0' + id % 10);
+      name_buf[len + 1] = 0;
+
+      /* Invoke SetThreadDescription().  Cast the function pointer to word  */
+      /* first to avoid "incompatible function types" compiler warning.     */
+      hr = (*(HRESULT (WINAPI *)(HANDLE, const WCHAR *))
+            (word)setThreadDescription_fn)(GetCurrentThread(), name_buf);
+      if (FAILED(hr))
+        WARN("SetThreadDescription failed\n", 0);
+    }
+# else
+#   define set_marker_thread_name(id) (void)(id)
+# endif
+
   /* GC_mark_thread() is the same as in pthread_support.c */
 # ifdef GC_PTHREADS_PARAMARK
     STATIC void * GC_mark_thread(void * id)
@@ -2013,6 +2064,7 @@ GC_INNER void GC_get_next_stack(char *start, char *limit,
     word my_mark_no = 0;
 
     if ((word)id == GC_WORD_MAX) return 0; /* to prevent a compiler warning */
+    set_marker_thread_name((unsigned)(word)id);
     marker_sp[(word)id] = GC_approx_sp();
 #   ifdef IA64
       marker_bsp[(word)id] = GC_save_regs_in_stack();
@@ -2688,6 +2740,10 @@ GC_INNER void GC_get_next_stack(char *start, char *limit,
 GC_INNER void GC_thr_init(void)
 {
   struct GC_stack_base sb;
+# if (!defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID) && !defined(MSWINCE) \
+      && defined(PARALLEL_MARK)) || defined(WOW64_THREAD_CONTEXT_WORKAROUND)
+    HMODULE hK32 = GetModuleHandle(TEXT("kernel32.dll"));
+# endif
 
   GC_ASSERT(I_HOLD_LOCK());
   if (GC_thr_initialized) return;
@@ -2717,16 +2773,13 @@ GC_INNER void GC_thr_init(void)
 
 # ifdef WOW64_THREAD_CONTEXT_WORKAROUND
     /* Set isWow64 flag. */
-    {
-      HMODULE hK32 = GetModuleHandle(TEXT("kernel32.dll"));
       if (hK32) {
         FARPROC pfn = GetProcAddress(hK32, "IsWow64Process");
         if (pfn
-            && !(*(BOOL (WINAPI*)(HANDLE, BOOL*))pfn)(GetCurrentProcess(),
-                                                      &isWow64))
+            && !(*(BOOL (WINAPI*)(HANDLE, BOOL*))(word)pfn)(
+                                        GetCurrentProcess(), &isWow64))
           isWow64 = FALSE; /* IsWow64Process failed */
       }
-    }
 # endif
 
   /* Add the initial thread, so we can stop it. */
@@ -2808,6 +2861,11 @@ GC_INNER void GC_thr_init(void)
           if (mark_mutex_event == (HANDLE)0 || builder_cv == (HANDLE)0
               || mark_cv == (HANDLE)0)
             ABORT("CreateEvent failed");
+#       endif
+#       if !defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID) && !defined(MSWINCE)
+          if (hK32)
+            setThreadDescription_fn = GetProcAddress(hK32,
+                                                     "SetThreadDescription");
 #       endif
       }
 # endif /* PARALLEL_MARK */

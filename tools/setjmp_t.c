@@ -76,12 +76,18 @@ word (*volatile nested_sp_fn)(void) = nested_sp;
 
 int g(int x);
 
+#if defined(CPPCHECK) || !defined(__cplusplus)
+  const char *a_str = "a";
+#else
+# define a_str "a"
+#endif
+
 int main(void)
 {
     volatile word sp;
     unsigned ps = GETPAGESIZE();
     JMP_BUF b;
-    register int x = (int)strlen("a");  /* 1, slightly disguised */
+    register int x = (int)strlen(a_str); /* 1, slightly disguised */
     static volatile int y = 0;
 
     sp = (word)(&sp);
